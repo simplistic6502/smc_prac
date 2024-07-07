@@ -135,7 +135,9 @@ SockfolderText_SMB1:
     dw $7058,$0500,$2c15,$2000,$2000 ;"L00" for lag counter
 
 ;save RNG and entrance frame when loading area pointer (need to do warpzones)
-org $0387eb ;title screen
+org $0387eb ;title screen (reorder code to store hidden 1-UP flag first)
+    inc !Hidden1UpFlag
+    inc !OffScr_Hidden1UpFlag
     jsl LoadAreaPointerHijack_SMB1
 org $038afa ;world end
     jsl LoadAreaPointerHijack_SMB1
@@ -164,3 +166,14 @@ org $0381d6
 ;print frame counter when player gains control
 org $03afd2
     jsl PlayerRdy
+
+;store world number into seperate address when taking warp zone (bugfix for quick restart)
+org $03e689
+    sty !WarpWorldNumber
+org $03e6a3 ;don't reset level/area numbers when taking warp zone
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop

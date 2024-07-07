@@ -14,6 +14,7 @@
 !ScreenEdge_X_Pos = $071c
 !MoveSpritesOffscreen = $0722
 !TimerControl = $0747
+!EntrancePage = $0751
 !AltEntranceControl = $0752
 !SelectedPlayer = $0753
 !PlayerSize = $0754
@@ -28,6 +29,7 @@
 !WorldNumber = $075f
 !AreaNumber = $0760
 !OffScr_NumberofLives = $0761
+!OffScr_Hidden1UpFlag = $0764
 !DisableIntermediate = $0769
 !PrimaryHardMode = $076a
 !OperMode = $0770
@@ -91,9 +93,10 @@
 !ReadJoypads_TLL = $0fd000
 
 ;custom defines
-!MAX_OPTIONS_SMB1 = 6
-!MAX_OPTIONS_TLL = 9
+!MAX_OPTIONS_SMB1 = 7
+!MAX_OPTIONS_TLL = 10
 
+!WarpWorldNumber = $04fe
 !LagCounter = $04ff
 
 !PracticeMenuMemory = $0a20
@@ -129,6 +132,9 @@ endmacro
 %malloc_prac(SavedRNGNumber,2)
 %malloc_prac(MenuRNGNumber,2)
 %malloc_prac(SavedIntermediateFlag,1)
+%malloc_prac(Saved1UpFlag,1)
+%malloc_prac(Menu1UpFlag,1)
+%malloc_prac(SavedEntrancePage,1)
 
 ;macros
 macro setup_vram_buffer(addr,len)

@@ -196,18 +196,21 @@ UpdateLagCounter:
 ChgAreaModeHijack:              ;hijack to store game info on warp zone completion
     lda !WarpZoneControl        ;did we exit level via warpzone?
     beq +                       ;skip custom subroutine if not
+    lda !GameEngineSubroutine   ;v1.0.1 fix: previously, if we entered a sideways pipe
+    cmp #$03                    ;while WarpZoneControl is set, we erroneously overwrote our saved
+    bne +                       ;information...resolved by checking for vertical pipe entry routine
     jsr SaveRNG_EntranceFrame   ;otherwise we took a warp zone and want to save info
+    lda !WarpWorldNumber        ;v1.0.1 fix: previously, entering a warp zone pipe would immediately
+    sta !WorldNumber            ;overwrite the world and level numbers, breaking quick restart...
+    stz !AreaNumber             ;to remedy this, we store the new world number in a seperate address
+    stz !LevelNumber            ;and then set the new level when we're about to do the fade-out effect
 +:  lda #$00                    ;set operation task and leave
     sta !OperMode_Task
     rtl
 LoadAreaPointerHijack_SMB1:
-    ;lda !DisableIntermediate    ;is the disable intermediate flag set?
-    ;bne +                       ;if so, skip routine to save RNG/entrance state
     jsr SaveRNG_EntranceFrame   ;save RNG and other relevant info for stage reload
     jml !LoadAreaPointer_SMB1   ;load area pointer and don't return here
 LoadAreaPointerHijack_TLL:
-    ;lda !DisableIntermediate    ;is the disable intermediate flag set?
-    ;bne +                       ;if so, skip routine to save RNG/entrance state
     jsr SaveRNG_EntranceFrame   ;save RNG and other relevant info for stage reload
     jml !LoadAreaPointer_TLL    ;load area pointer and don't return here
 SaveRNG_EntranceFrame:
@@ -226,8 +229,12 @@ SaveRNG_EntranceFrame:
     lda !CurrentRNGNumber       ;save RNG number for use in practice menu
     sta !SavedRNGNumber
     sep #$20
-    lda !DisableIntermediate    ;finally, save flag used to disable intermediate
+    lda !DisableIntermediate    ;save flag used to disable intermediate
     sta !SavedIntermediateFlag  ;if we need to for a x-2 level
+    lda !Hidden1UpFlag          ;copy hidden 1-UP flag over for level reload
+    sta !Saved1UpFlag
+    lda !EntrancePage           ;copy entrance page for level reload
+    sta !SavedEntrancePage
     rts
 
 ;RNG enters a 32767-frame loop 39 iterations after seeding...we assign a
@@ -428,8 +435,19 @@ UpdateCustomAddresses:
 PracticeMenu_SMB1:
     jsl !ReadJoypads_SMB1       ;read controllers
     stz !CurrentGame            ;use variable to indicate we're in smb1
+    ldx #$02                    ;v1.0.1 fix: due to an oversight, $02 getting overwritten
+-:  lda $00,x                   ;breaks the physics of the 6-4 ending sequence, since
+    pha                         ;$02 is used to store the max speed of the toads...
+    dex                         ;to err on the side of caution, push all temp RAM we use
+    bpl -                       ;to the stack, so that way we can restore it when we're done
     jsr HandlePracticeMenu      ;do practice menu stuff
     jsr UpdateCustomAddresses   ;update the custom address values
+    ldx #$00                    ;set X to $00 to start our temp RAM restoration at $00
+-:  pla                         ;pull out each temp RAM byte we used in the practice routines
+    sta $00,x                   ;and restore it by returning the value to the right address
+    inx                         ;go to the next byte in temp RAM
+    cpx #$03                    ;do this from $00-$02, since we only used those bytes as temp RAM
+    bcc -                       ;once we've done all bytes, we're done restoring temp RAM
     lda !PracticeMenuFlag       ;if we have the menu enabled, only run audio subs
     bne SkipGameLoop_SMB1
     lda !DelayRNGFlag           ;do we have to delay RNG because FixFadeoutBGScroll is zero?
@@ -452,8 +470,19 @@ PracticeMenu_TLL:
     jsl !ReadJoypads_TLL        ;read controllers
     lda #$01
     sta !CurrentGame            ;use variable to indicate we're in tll
+    ldx #$02                    ;v1.0.1 fix: due to an oversight, $02 getting overwritten
+-:  lda $00,x                   ;breaks the physics of the 6-4 and B-4 ending sequence, since
+    pha                         ;$02 is used to store the max speed of the toads...
+    dex                         ;to err on the side of caution, push all temp RAM we use
+    bpl -                       ;to the stack, so that way we can restore it when we're done
     jsr HandlePracticeMenu      ;do practice menu stuff
     jsr UpdateCustomAddresses   ;update the custom address values
+    ldx #$00                    ;set X to $00 to start our temp RAM restoration at $00
+-:  pla                         ;pull out each temp RAM byte we used in the practice routines
+    sta $00,x                   ;and restore it by returning the value to the right address
+    inx                         ;go to the next byte in temp RAM
+    cpx #$03                    ;do this from $00-$02, since we only used those bytes as temp RAM
+    bcc -                       ;once we've done all bytes, we're done restoring temp RAM
     lda !PracticeMenuFlag       ;if we have the menu enabled, only run audio subs
     bne SkipGameLoop_TLL
     lda !DelayRNGFlag           ;do we have to delay RNG because of a stupid quirk?
@@ -525,6 +554,11 @@ PreparePracticeMenu:
     sta !MenuEntranceFrame
     lda !SavedScreenFlag
     sta !MenuScreenFlag
+    lda !Saved1UpFlag           ;copy saved 1-UP flag over
+    cmp #$02                    ;check if it's greater than $01
+    bcc +                       ;if it isn't, use value as-is
+    lda #$01                    ;otherwise force to $01
++:  sta !Menu1UpFlag            ;store 1-UP flag here
     stz !MenuSelectionIndex     ;clear menu selection index
     %menu_open_sfx()            ;play sfx for opening menu
     bra RunPracticeMenu         ;run the practice menu code to immediately draw option
@@ -590,6 +624,7 @@ OptionTextPointers:
     dw RNGOptionText
     dw RAMOptionText
     dw PowerupOptionText
+    dw Hidden1UpOptionText
     dw InvincibilityOptionText
     dw PlayerOptionText
     dw CoinsOptionText
@@ -600,6 +635,7 @@ OptionDrawPointers:
     dw DrawRNGOption
     dw DrawAddressesOption
     dw DrawPowerupOption
+    dw Draw1UpOption
     dw DrawOptionStub
     dw DrawPlayerOption
     dw DrawCoinsOption
@@ -644,6 +680,7 @@ OptionCtrlPointers:
     dw ControlRNGOption
     dw ControlAddressesOption
     dw ControlPowerupOption
+    dw Control1UpOption
     dw ControlInvincibilityOption
     dw ControlPlayerOption
     dw ControlCoinsOption
@@ -700,12 +737,6 @@ AreaNumbers_TLL:
 WarpToLevel:
     lda !MenuLevelNumber        ;store new level number
     sta !LevelNumber
-    beq +
-    lda #$00                    ;disable hidden 1UP if on x-2 through x-4
-    bra SetHidden1Up
-+:  lda #$01                    ;enable hidden 1UP if on x-1 level
-SetHidden1Up:
-    sta !Hidden1UpFlag          ;to-do: give user control of hidden 1UP
     phx                         ;push X to stack for later
     txa                         ;note that game value is still in X
     asl
@@ -758,11 +789,7 @@ SetSMB1Stuff:
 SetHardMode:
     sta !PrimaryHardMode
 ForceLevelReload:               ;quick restart jumps here to preserve world/level numbers and such
-    ;lda !LevelNumber            ;a bit hacky, but restart at pipe intro cutscene if we're on a x-2 level...
-    ;cmp #!Level2                ;unfortunately, this is currently required because our RNG system assumes
-    ;bne +                       ;a lives screen will occur before you spawn in the current/selected level
-    ;sta !AreaNumber             ;we could probably fix this in the future by skipping RNG for lives screen
-+:  stz !OperMode_Task          ;reset modes of operation
+    stz !OperMode_Task          ;reset modes of operation
     lda #!GameModeValue
     sta !OperMode
     sta !FetchNewGameTimerFlag  ;set flag to reset game timer
@@ -797,6 +824,10 @@ CopySavedRNG:
     inx                         ;otherwise increment X for small
 SetSize:
     stx !PlayerSize             ;set size to maintain parity with power-up status
+    lda !Saved1UpFlag           ;store flag to enable/disable hidden 1-UP mushroom
+    sta !Hidden1UpFlag
+    lda !SavedEntrancePage      ;copy over saved entrance page (relevant for wrong warps)
+    sta !EntrancePage
     ldx !CurrentGame            ;use our current game to load the correct area pointers
     beq +
     jsl !LoadAreaPointer_TLL
@@ -1218,6 +1249,56 @@ IncrementPowerup:
     %increment_option(!MenuPlayerStatus,#3)
 DecrementPowerup:
     %decrement_option(!MenuPlayerStatus,#3)
+
+;----------------------------------------------------------------
+
+;"HIDDEN 1-UP BLOCK 00000000"
+Hidden1UpOptionText:
+    dw $2c11, $2c12, $2c0d, $2c0d, $2c0e, $2c17, $2c28, $2c01
+    dw $2c24, $2c1e, $2c19, $2c28, $2c0b, $2c15, $2c18, $2c0c
+    dw $2c14, $2c28, $2000, $2000, $2000, $2000, $2000, $2000
+    dw $2000, $2000
+
+EnabledDisabledPointers:
+    dw Disabled,Enabled
+
+Disabled:
+    dw $200d,$2012,$201c,$200a,$200b,$2015,$200e,$200d ;"DISABLED"
+Enabled:
+    dw $200e,$2017,$200a,$200b,$2015,$200e,$200d,$2028 ;"DISABLED"
+
+Draw1UpOption:
+    lda !Menu1UpFlag                ;get menu 1-UP flag for use as offset
+    asl                             ;multiply by two for 16-bit words
+    tax
+    rep #$20
+    lda EnabledDisabledPointers,x   ;load appropiate pointer into $00
+    sta $00
+    sep #$20
+    ldy #$0e                        ;do loop to write text to menu buffer
+-:  lda ($00),y
+    sta !VRAM_BufferData+36,y
+    dey
+    dey
+    bpl -
+    rts
+
+Control1UpOption:
+    lda !JoypadBits1Pressed ;check buttons just pressed
+    bmi Update1UpFlag       ;if B button pressed, update saved 1-UP flag
+    bit #%00000100
+    bne Invert1UpFlag       ;if pressing down, invert 1-UP flag
+    bit #%00001000
+    bne Invert1UpFlag       ;if pressing up, invert 1-UP flag
+    rts                     ;if pressing neither, leave
+Invert1UpFlag:
+    %invert_option(!Menu1UpFlag)
+Update1UpFlag:
+    lda !Menu1UpFlag        ;save menu's 1-UP flag into saved copy
+    sta !Saved1UpFlag       ;(used for level reload/warp feature)
+    sta !Hidden1UpFlag      ;also change the current 1-UP flag
+    %menu_confirm_sfx()     ;play confirmation sound
+    rts                     ;leave
 
 ;----------------------------------------------------------------
 
