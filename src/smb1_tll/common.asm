@@ -2,7 +2,7 @@
 org $048596
     stz !NumberOfLives
 
-org $05ee5d ;we stuff all practice functions at the end of bank $05 for now
+org $04fdef ;use the end of bank $04 for practice functions without common routines
 PrintTimerFrame:
     %setup_vram_buffer($7c58,$0100) ;set destination address and length
     sep #$20                        ;8-bit A
@@ -18,6 +18,103 @@ PrintTimerFrame:
     pla                             ;pull from stack to set Z flag, if relevant
     rtl                             ;return
 
+UpdateLagCounter:
+    lda !OperMode               ;check mode of operation (mostly a copy-paste from practice menu)
+    cmp #!VictoryModeValue
+    beq +                       ;if victory mode, allow adding to lag counter
+    cmp #!GameModeValue         ;if not victory or game mode, cannot add to lag counter
+    bne ++           
+    lda !OperMode_Task          ;only allow lag counter when game core routine is running
+    cmp #$03
+    bne ++
++:  lda !PauseModeFlag          ;however, if we're in the normal pause menu, don't add to lag counter
+    bne ++
+    lda !PracticeMenuFlag       ;...same goes for the practice menu (because that'd be weird)
+    bne ++
+    inc !LagCounter             ;if we meet these conditions and the game lagged, add to counter
+++: rtl
+
+ChgAreaModeHijack:              ;hijack to store game info on warp zone completion
+    lda !WarpZoneControl        ;did we exit level via warpzone?
+    beq +                       ;skip custom subroutine if not
+    lda !GameEngineSubroutine   ;v1.0.1 fix: previously, if we entered a sideways pipe
+    cmp #$03                    ;while WarpZoneControl is set, we erroneously overwrote our saved
+    bne +                       ;information...resolved by checking for vertical pipe entry routine
+    jsr SaveRNG_EntranceFrame   ;otherwise we took a warp zone and want to save info
+    lda !WarpWorldNumber        ;v1.0.1 fix: previously, entering a warp zone pipe would immediately
+    sta !WorldNumber            ;overwrite the world and level numbers, breaking quick restart...
+    stz !AreaNumber             ;to remedy this, we store the new world number in a seperate address
+    stz !LevelNumber            ;and then set the new level when we're about to do the fade-out effect
++:  lda #$00                    ;set operation task and leave
+    sta !OperMode_Task
+    rtl
+LoadAreaPointerHijack_SMB1:
+    jsr SaveRNG_EntranceFrame   ;save RNG and other relevant info for stage reload
+    jml !LoadAreaPointer_SMB1   ;load area pointer and don't return here
+LoadAreaPointerHijack_TLL:
+    jsr SaveRNG_EntranceFrame   ;save RNG and other relevant info for stage reload
+    jml !LoadAreaPointer_TLL    ;load area pointer and don't return here
+SaveRNG_EntranceFrame:
+    ldx #$06                    ;init counter for RNG loop 
+-:  lda !PseudoRandomBitReg,x   ;copy RNG over
+    sta !SavedRNGBytes,x
+    dex
+    bpl -
+    lda !IntervalTimerControl   ;copy entrance frame
+    sta !SavedEntranceFrame
+    lda !FixFadeoutBGScroll     ;set this depending on type of entrance
+    sta !SavedScreenFlag        ;to prevent one-frame RNG desync
+    lda !PlayerStatus           ;save power-up state
+    sta !SavedPlayerStatus
+    rep #$20
+    lda !CurrentRNGNumber       ;save RNG number for use in practice menu
+    sta !SavedRNGNumber
+    sep #$20
+    lda !DisableIntermediate    ;save flag used to disable intermediate
+    sta !SavedIntermediateFlag  ;if we need to for a x-2 level
+    lda !Hidden1UpFlag          ;copy hidden 1-UP flag over for level reload
+    sta !Saved1UpFlag
+    lda !EntrancePage           ;copy entrance page for level reload
+    sta !SavedEntrancePage
+    lda !CoinTally              ;copy coin tally for level reload
+    sta !SavedCoinTally
+    rts
+
+;RNG enters a 32767-frame loop 39 iterations after seeding...we assign a
+;number from $0001 to $7fff for these 32767 combinations.
+;if the RNG number is $0000, we haven't entered the loop yet.
+StartofRNGLoop:
+    db $33,$0f,$69,$77,$a5,$4a,$00  ;RNG number $0001 (aka start of the loop)
+UpdateRNGNumber:
+    ldx #$06                    ;use X as counter to compare RNG bytes
+ChkStartofRNGLoop:
+    lda !PseudoRandomBitReg,x   ;compare our current RNG against the start of the RNG loop
+    cmp.l StartofRNGLoop,x
+    bne NotStartofLoop          ;if any bytes don't match, branch ahead
+    dex
+    bpl ChkStartofRNGLoop       ;do this for all seven RNG bytes
+    rep #$20                    ;if our RNG sequence DOES match, we're at the start of the RNG loop
+    lda #$0001                  ;force our RNG number to $0001 to represent this
+    sta !CurrentRNGNumber
+    bra +                       ;branch ahead to handle the sound engine
+NotStartofLoop:
+    rep #$20
+    lda !CurrentRNGNumber       ;if we aren't at the start of the loop, check if the number
+    beq +                       ;is still at $0000 (we haven't done 39 iterations yet)
+    inc !CurrentRNGNumber       ;if we are in the loop already, increment the RNG number
++:  sep #$20
+    jmp !SoundEngine_w          ;go handle the sound engine now
+
+InitCustomAddresses:
+    rep #$20                    ;use 16-bit accumulator
+    lda #!DEFAULTADDR_A         ;set default custom addresses on game boot
+    sta !CustomAddressA
+    lda #!DEFAULTADDR_B
+    sta !CustomAddressB
+    sep #$20                    ;restore 8-bit accumulator
+    jmp !ClearBG3Tilemap_w      ;clear BG3 tilemap and return to previous ROM bank
+
+org $05ee5d ;all other practice functions are located at the end of bank $05
 PrintRemainderFlagpole:
     phx                             ;preserve X since we'll use it here
     jsr PrintRemainder              ;print the framerule's remainder
@@ -49,7 +146,7 @@ PrintRemainder:
     lda $00
     sta !VRAM_BufferData+4,x        ;tens place
     %update_buffer_offset($0007)
-UpdateFrameCounterInner:            ;remainder update always updates frame counter too!
+UpdateFrameCounterInner:            ;remainder update always redraws frame counter too!
     %setup_vram_buffer($4c58,$0500) ;set destination address and length
     sep #$20                        ;8-bit A so we can set high/low bytes
     lda #$20
@@ -155,7 +252,6 @@ UpdateSockfolderPos:
     jsr GetNybbles
     tya
     sta !VRAM_BufferData+4,x
-
     ;we tack on the lag counter display here
     rep #$20
     lda #$7158
@@ -176,91 +272,6 @@ DoScroll:
     lda !Player_X_Scroll                ;load scroll value for return subroutine
     clc
 	rtl
-
-UpdateLagCounter:
-    lda !OperMode               ;check mode of operation (mostly a copy-paste from practice menu)
-    cmp #!VictoryModeValue
-    beq +                       ;if victory mode, allow adding to lag counter
-    cmp #!GameModeValue         ;if not victory or game mode, cannot add to lag counter
-    bne ++           
-    lda !OperMode_Task          ;only allow lag counter when game core routine is running
-    cmp #$03
-    bne ++
-+:  lda !PauseModeFlag          ;however, if we're in the normal pause menu, don't add to lag counter
-    bne ++
-    lda !PracticeMenuFlag       ;...same goes for the practice menu (because that'd be weird)
-    bne ++
-    inc !LagCounter             ;if we meet these conditions and the game lagged, add to counter
-++: rtl
-
-ChgAreaModeHijack:              ;hijack to store game info on warp zone completion
-    lda !WarpZoneControl        ;did we exit level via warpzone?
-    beq +                       ;skip custom subroutine if not
-    lda !GameEngineSubroutine   ;v1.0.1 fix: previously, if we entered a sideways pipe
-    cmp #$03                    ;while WarpZoneControl is set, we erroneously overwrote our saved
-    bne +                       ;information...resolved by checking for vertical pipe entry routine
-    jsr SaveRNG_EntranceFrame   ;otherwise we took a warp zone and want to save info
-    lda !WarpWorldNumber        ;v1.0.1 fix: previously, entering a warp zone pipe would immediately
-    sta !WorldNumber            ;overwrite the world and level numbers, breaking quick restart...
-    stz !AreaNumber             ;to remedy this, we store the new world number in a seperate address
-    stz !LevelNumber            ;and then set the new level when we're about to do the fade-out effect
-+:  lda #$00                    ;set operation task and leave
-    sta !OperMode_Task
-    rtl
-LoadAreaPointerHijack_SMB1:
-    jsr SaveRNG_EntranceFrame   ;save RNG and other relevant info for stage reload
-    jml !LoadAreaPointer_SMB1   ;load area pointer and don't return here
-LoadAreaPointerHijack_TLL:
-    jsr SaveRNG_EntranceFrame   ;save RNG and other relevant info for stage reload
-    jml !LoadAreaPointer_TLL    ;load area pointer and don't return here
-SaveRNG_EntranceFrame:
-    ldx #$06                    ;init counter for RNG loop 
--:  lda !PseudoRandomBitReg,x   ;copy RNG over
-    sta !SavedRNGBytes,x
-    dex
-    bpl -
-    lda !IntervalTimerControl   ;copy entrance frame
-    sta !SavedEntranceFrame
-    lda !FixFadeoutBGScroll     ;set this depending on type of entrance
-    sta !SavedScreenFlag        ;to prevent one-frame RNG desync
-    lda !PlayerStatus           ;save power-up state
-    sta !SavedPlayerStatus
-    rep #$20
-    lda !CurrentRNGNumber       ;save RNG number for use in practice menu
-    sta !SavedRNGNumber
-    sep #$20
-    lda !DisableIntermediate    ;save flag used to disable intermediate
-    sta !SavedIntermediateFlag  ;if we need to for a x-2 level
-    lda !Hidden1UpFlag          ;copy hidden 1-UP flag over for level reload
-    sta !Saved1UpFlag
-    lda !EntrancePage           ;copy entrance page for level reload
-    sta !SavedEntrancePage
-    rts
-
-;RNG enters a 32767-frame loop 39 iterations after seeding...we assign a
-;number from $0001 to $7fff for these 32767 combinations.
-;if the RNG number is $0000, we haven't entered the loop yet.
-StartofRNGLoop:
-    db $33,$0f,$69,$77,$a5,$4a,$00  ;RNG number $0001 (aka start of the loop)
-UpdateRNGNumber:
-    ldx #$06                    ;use X as counter to compare RNG bytes
-ChkStartofRNGLoop:
-    lda !PseudoRandomBitReg,x   ;compare our current RNG against the start of the RNG loop
-    cmp.l StartofRNGLoop,x
-    bne NotStartofLoop          ;if any bytes don't match, branch ahead
-    dex
-    bpl ChkStartofRNGLoop       ;do this for all seven RNG bytes
-    rep #$20                    ;if our RNG sequence DOES match, we're at the start of the RNG loop
-    lda #$0001                  ;force our RNG number to $0001 to represent this
-    sta !CurrentRNGNumber
-    bra +                       ;branch ahead to handle the sound engine
-NotStartofLoop:
-    rep #$20
-    lda !CurrentRNGNumber       ;if we aren't at the start of the loop, check if the number
-    beq +                       ;is still at $0000 (we haven't done 39 iterations yet)
-    inc !CurrentRNGNumber       ;if we are in the loop already, increment the RNG number
-+:  sep #$20
-    jml !SoundEngine            ;go handle the sound engine now
 
 ;we take a snapshot of the RNG every 512 frames from the start of the loop
 ;to limit the number of RNG iterations required for calculation to 511
@@ -349,9 +360,24 @@ DoNormalRNG:
     tax                         ;transfer result to X to use as counter for loop
     sep #$20                    ;use 8-bit accumulator once again
     cpx #$0000                  ;is our counter value at zero?
-    beq DoneWithRNG             ;if so, don't bother doing any iteration
-AdvanceRNGLoop:
-    jsr AdvanceRNG              ;otherwise iterate through RNG until the counter hits zero
+    beq DoneWithRNG             ;if so, don't bother doing any RNG iteration
+AdvanceRNGLoop:                 ;otherwise iterate through RNG until the counter hits zero
+    lda !SavedRNGBytes          ;XOR current d49 and d41
+    and #%00000010
+    sta $00
+    lda !SavedRNGBytes+1
+    and #%00000010
+    eor $00
+    clc                         ;clear or set carry based on result
+    beq +
+    sec
++:  ror !SavedRNGBytes          ;shift all bits to the right,
+    ror !SavedRNGBytes+1        ;discard the current d0, and set
+    ror !SavedRNGBytes+2        ;the new d55 based on the earlier XOR
+    ror !SavedRNGBytes+3
+    ror !SavedRNGBytes+4
+    ror !SavedRNGBytes+5
+    ror !SavedRNGBytes+6
     dex
     bne AdvanceRNGLoop
 DoneWithRNG:
@@ -362,31 +388,13 @@ DoneWithRNG:
     sta !SavedScreenFlag
     rts
 
-;RNG algorithm as taken from the game itself
-AdvanceRNG:
-    lda !SavedRNGBytes     ;XOR current d49 and d41
-    and #%00000010
-    sta $00
-    lda !SavedRNGBytes+1
-    and #%00000010
-    eor $00
-    clc                    ;clear or set carry based on result
-    beq +
-    sec
-+:  ror !SavedRNGBytes     ;shift all bits to the right,
-    ror !SavedRNGBytes+1   ;discard the current d0, and set
-    ror !SavedRNGBytes+2   ;the new d55 based on the earlier XOR
-    ror !SavedRNGBytes+3
-    ror !SavedRNGBytes+4
-    ror !SavedRNGBytes+5
-    ror !SavedRNGBytes+6
-    rts
-
 UpdateCustomAddresses:
     ldx !VRAM_BufferOffset   ;only do this if VRAM buffer is empty (to limit buffer size)
     bne +
     ldx !PauseModeFlag       ;skip over this if pause menu is open because there's no point in updating
     bne +
+    ldx !DisableScreenFlag   ;do not update custom addresses if screen disable flag is set
+    bne +                    ;(prevents VRAM glitches when overwriting mario's name with luigi's)
     rep #$30                 ;enable 16-bit registers
     lda #$5558               ;location of text, LSB then MSB
     sta !VRAM_BufferAddr
@@ -435,19 +443,7 @@ UpdateCustomAddresses:
 PracticeMenu_SMB1:
     jsl !ReadJoypads_SMB1       ;read controllers
     stz !CurrentGame            ;use variable to indicate we're in smb1
-    ldx #$02                    ;v1.0.1 fix: due to an oversight, $02 getting overwritten
--:  lda $00,x                   ;breaks the physics of the 6-4 ending sequence, since
-    pha                         ;$02 is used to store the max speed of the toads...
-    dex                         ;to err on the side of caution, push all temp RAM we use
-    bpl -                       ;to the stack, so that way we can restore it when we're done
-    jsr HandlePracticeMenu      ;do practice menu stuff
-    jsr UpdateCustomAddresses   ;update the custom address values
-    ldx #$00                    ;set X to $00 to start our temp RAM restoration at $00
--:  pla                         ;pull out each temp RAM byte we used in the practice routines
-    sta $00,x                   ;and restore it by returning the value to the right address
-    inx                         ;go to the next byte in temp RAM
-    cpx #$03                    ;do this from $00-$02, since we only used those bytes as temp RAM
-    bcc -                       ;once we've done all bytes, we're done restoring temp RAM
+    jsr RunPracticeRoutines     ;run custom practice subroutines
     lda !PracticeMenuFlag       ;if we have the menu enabled, only run audio subs
     bne SkipGameLoop_SMB1
     lda !DelayRNGFlag           ;do we have to delay RNG because FixFadeoutBGScroll is zero?
@@ -470,22 +466,10 @@ PracticeMenu_TLL:
     jsl !ReadJoypads_TLL        ;read controllers
     lda #$01
     sta !CurrentGame            ;use variable to indicate we're in tll
-    ldx #$02                    ;v1.0.1 fix: due to an oversight, $02 getting overwritten
--:  lda $00,x                   ;breaks the physics of the 6-4 and B-4 ending sequence, since
-    pha                         ;$02 is used to store the max speed of the toads...
-    dex                         ;to err on the side of caution, push all temp RAM we use
-    bpl -                       ;to the stack, so that way we can restore it when we're done
-    jsr HandlePracticeMenu      ;do practice menu stuff
-    jsr UpdateCustomAddresses   ;update the custom address values
-    ldx #$00                    ;set X to $00 to start our temp RAM restoration at $00
--:  pla                         ;pull out each temp RAM byte we used in the practice routines
-    sta $00,x                   ;and restore it by returning the value to the right address
-    inx                         ;go to the next byte in temp RAM
-    cpx #$03                    ;do this from $00-$02, since we only used those bytes as temp RAM
-    bcc -                       ;once we've done all bytes, we're done restoring temp RAM
+    jsr RunPracticeRoutines     ;run custom practice subroutines
     lda !PracticeMenuFlag       ;if we have the menu enabled, only run audio subs
     bne SkipGameLoop_TLL
-    lda !DelayRNGFlag           ;do we have to delay RNG because of a stupid quirk?
+    lda !DelayRNGFlag           ;do we have to delay RNG because FixFadeoutBGScroll is zero?
     beq Return_TLL              ;if not, do normal game execution
     jsl !SoundEngine            ;otherwise run audio subs
     pla                         ;then pop return address off stack
@@ -501,6 +485,23 @@ SkipGameLoop_TLL:
     pla
     pla
     jml !WaitForNMI_TLL         ;and jump to wait for next game loop
+
+RunPracticeRoutines:
+    rep #$20                    ;v1.0.1 fix: due to an oversight, $02 getting overwritten
+    lda $00                     ;breaks the physics of the 6-4 and B-4 ending sequence, since
+    pha                         ;$02 is used to store the max speed of the toads...
+    lda $02                     ;to err on the side of caution, push all temp RAM we use
+    pha                         ;to the stack, so that way we can restore it when we're done
+    sep #$20                    ;note that we currently reserve $00-$03 for use as scratch RAM
+    jsr HandlePracticeMenu      ;take care of the practice menu or quick restart, if needed
+    jsr UpdateCustomAddresses   ;update the custom LowRAM address values
+    rep #$20                    ;set 16-bit accumulator so we can retrieve temp RAM correctly
+    pla                         ;pull $02-$03 from the stack and restore
+    sta $02
+    pla                         ;pull $00-$01 from the stack and restore
+    sta $00
+    sep #$20                    ;return to 8-bit accumulator since we've restored temp RAM
+    rts                         ;we're done with the practice routines at this point
 HandlePracticeMenu:
     lda !PracticeMenuFlag       ;are we currently in the practice menu?
     beq CheckForMenu
@@ -516,17 +517,19 @@ CheckForMenu:
     bne ExitMenuCheck
 +:  lda !PauseModeFlag          ;however, if we're in the normal pause menu, don't open practice menu
     bne ExitMenuCheck
-    lda !JoypadBits1Pressed     ;after all this, check if we're pressing select to open the menu
+    lda !FixFadeoutBGScroll     ;check if we're doing a fade-out or fade-in
+    bne ExitMenuCheck           ;yes, leave
+    lda !JoypadBitsBHeld        ;are we holding either L or R (or both)?
+    bit #%00110000
+    beq +                       ;if so, we're using savestates or doing level restart, so branch elsewhere
+    and #%00110000              ;now check for quick restart, which uses the L+R shoulder buttons
+    cmp #%00110000
+    bne ExitMenuCheck           ;if we aren't holding those buttons, leave
+    jmp ForceLevelReload        ;no, restart the current level with RNG and entrance frame intact
++:  lda !JoypadBitsAPressed     ;after all this, check if we're pressing select to open the menu
     and #%00100000
     cmp #%00100000
     beq PreparePracticeMenu     ;if we are, prepare the menu
-    lda !JoypadBits2Held        ;but if we're not, check for quick restart combo,
-    and #%00110000              ;which uses the L+R shoulder buttons
-    cmp #%00110000
-    bne ExitMenuCheck           ;if we aren't holding those buttons, leave
-    lda !FixFadeoutBGScroll     ;otherwise check if we're doing a fadeout or fadein
-    bne ExitMenuCheck           ;yes, leave
-    jmp ForceLevelReload        ;no, restart the current level with RNG and entrance frame intact
 ExitMenuCheck:
     rts           
 PreparePracticeMenu:
@@ -561,17 +564,27 @@ PreparePracticeMenu:
 +:  sta !Menu1UpFlag            ;store 1-UP flag here
     stz !MenuSelectionIndex     ;clear menu selection index
     %menu_open_sfx()            ;play sfx for opening menu
+    %setup_vram_buffer($2258,$0100)
+    lda #$2060
+    sta !VRAM_BufferData,x
+    %update_buffer_offset($0001)
+    %setup_vram_buffer($3d58,$0100)
+    lda #$6060
+    sta !VRAM_BufferData,x
+    %update_buffer_offset($0001)
     bra RunPracticeMenu         ;run the practice menu code to immediately draw option
 
 CheckForMenuClose:
-    lda !JoypadBits1Pressed     ;check if we're pressing select to close the menu
-    and #%00100000
-    cmp #%00100000
-    bne RunPracticeMenu         ;if we aren't, run the menu
+    lda !JoypadBitsBHeld        ;are we holding L or R shoulder buttons?
+    bit #%00110000              ;if we are, we're either doing menu navigation or
+    bne RunPracticeMenu         ;trying to use savestates, so just run the menu
+    lda !JoypadBitsAPressed     ;check if we're pressing select to close the menu
+    bit #%00100000
+    beq RunPracticeMenu         ;if we aren't, run the menu
     %menu_close_sfx()           ;play sfx if we're closing the menu
 ForceMenuClose:
     stz !PracticeMenuFlag       ;clear practice menu flag
-    %setup_vram_buffer($2358,$3340)
+    %setup_vram_buffer($2258,$3740)
     lda #$2028                  ;clear out the row above the status bar
     sta !VRAM_BufferData,x
     %update_buffer_offset($0001)
@@ -620,32 +633,31 @@ PracticeMenuCore:
     jmp (OptionDrawPointers,x)
 OptionTextPointers:
     dw LevelOptionText
+    dw PowerupOptionText
     dw EntranceOptionText
     dw RNGOptionText
-    dw RAMOptionText
-    dw PowerupOptionText
+    dw CoinsOptionText
+    dw AddressOptionText
+    dw PlayerOptionText
+    dw WarpsOptionText
     dw Hidden1UpOptionText
     dw InvincibilityOptionText
-    dw PlayerOptionText
-    dw CoinsOptionText
-    dw WarpsOptionText
+    dw TitleOptionText
 OptionDrawPointers:
     dw DrawLevelOption
+    dw DrawPowerupOption
     dw DrawEntranceOption
     dw DrawRNGOption
+    dw DrawCoinsOption
     dw DrawAddressesOption
-    dw DrawPowerupOption
+    dw DrawPlayerOption
+    dw DrawWarpsOption
     dw Draw1UpOption
     dw DrawOptionStub
-    dw DrawPlayerOption
-    dw DrawCoinsOption
-    dw DrawWarpsOption
+    dw DrawOptionStub
 
-MaxOptions:
-    db !MAX_OPTIONS_SMB1,!MAX_OPTIONS_TLL
 ControlPracticeMenu:
-    ldy !CurrentGame            ;store the current game in Y
-    lda !JoypadBits2Pressed     ;check if L or R were pressed
+    lda !JoypadBitsBPressed     ;check if L or R were pressed
     bit #%00010000
     bne RPress                  ;go here if R was pressed
     bit #%00100000
@@ -654,19 +666,33 @@ ControlPracticeMenu:
 RPress:
     lda !PracticeMenuOption     ;increment to next option
     inc
-    cmp MaxOptions,y            ;are we past the max option allowed?
+    cmp #!MAX_OPTIONS           ;are we past the max option allowed?
     bcc +                       ;no, set option number
     lda #$00                    ;yes, wrap option number around to zero
-    bra +
++:  sta !PracticeMenuOption     ;store our menu option here
+    tay                         ;move menu option to Y register to use as index
+    lda OptionAllowedGame,y     ;use lookup table to check which games
+    cmp #!BOTH_GAMES            ;will allow this menu option to be selected
+    bcs DrawNewOption           ;if both games allow it, branch ahead
+    cmp !CurrentGame            ;otherwise check which game allows it
+    bne RPress                  ;if not allowed, advance to the next option
+    bra DrawNewOption           ;otherwise branch to draw the option
 LPress:
     lda !PracticeMenuOption     ;decrement to previous option
     dec
     bpl +                       ;are we past the first option?
-    lda MaxOptions,y            ;if we are, get the max number of options
+    lda #!MAX_OPTIONS           ;if we are, get the max number of options
     dec                         ;and decrement to go to last menu option
 +:  sta !PracticeMenuOption     ;store our menu option here
-    %change_option_sfx()
-    inc !DrawOptionFlag
+    tay                         ;move menu option to Y to use as index
+    lda OptionAllowedGame,y     ;use lookup table to check which games
+    cmp #!BOTH_GAMES            ;allow this menu option to be selected
+    beq DrawNewOption           ;if both games allow it, branch ahead
+    cmp !CurrentGame            ;otherwise check which game allows it
+    bne LPress                  ;if not allowed, go back another option
+DrawNewOption:
+    %change_option_sfx()        ;play option change sound effect
+    inc !DrawOptionFlag         ;set flag to draw the new option
     stz !MenuSelectionIndex     ;clear selection index within option
     rts                         ;leave
 ControlOption:
@@ -676,36 +702,53 @@ ControlOption:
     jmp (OptionCtrlPointers,x)
 OptionCtrlPointers:
     dw ControlLevelOption
+    dw ControlPowerupOption
     dw ControlEntranceOption
     dw ControlRNGOption
+    dw ControlCoinsOption
     dw ControlAddressesOption
-    dw ControlPowerupOption
+    dw ControlPlayerOption
+    dw ControlWarpsOption
     dw Control1UpOption
     dw ControlInvincibilityOption
-    dw ControlPlayerOption
-    dw ControlCoinsOption
-    dw ControlWarpsOption
+    dw ControlTitleOption
+OptionAllowedGame:
+    db !BOTH_GAMES
+    db !BOTH_GAMES
+    db !BOTH_GAMES
+    db !BOTH_GAMES
+    db !TLL_ONLY
+    db !BOTH_GAMES
+    db !TLL_ONLY
+    db !TLL_ONLY
+    db !BOTH_GAMES
+    db !BOTH_GAMES
+    db !BOTH_GAMES
 
 ;----------------------------------------------------------------
 
-;"WARP TO WORLD  0-0    "
+;"WARP TO WORLD 000     "
 LevelOptionText:
     dw $2c20, $2c0a, $2c1b, $2c19, $2c28, $2c1d, $2c18, $2c28
-    dw $2020, $2018, $201b, $2015, $200d, $2028, $2028, $2000
-    dw $2024, $2000, $2c28, $2c28, $2c28, $2c28, $2c28, $2c28
+    dw $2020, $2018, $201b, $2015, $200d, $2028, $2000, $2000
+    dw $2000, $2028, $2c28, $2c28, $2c28, $2c28, $2c28, $2c28
     dw $2c28, $2c28
 
 DrawLevelOption:
     lda !MenuHardModeFlag   ;hard mode enabled?
-    beq +
-    lda #$2a                ;write star to buffer if so
+    asl                     ;multiply by 2 for use as index
+    tax
+    beq +                   ;no, do not include star before world number
+    lda #$2a                ;write star to buffer if hard mode is enabled
     sta !VRAM_BufferData+28
 +:  lda !MenuWorldNumber    ;write world number
     inc                     ;increment for display, as usual
-    sta !VRAM_BufferData+30
+    sta !VRAM_BufferData+28,x
+    lda #$24                ;write dash between world and level number
+    sta !VRAM_BufferData+30,x
     lda !MenuLevelNumber    ;write level number
     inc                     ;increment for display, as usual
-    sta !VRAM_BufferData+34
+    sta !VRAM_BufferData+32,x
 DrawOptionStub:             ;this is here if we don't need any buffer manipulation
     rts
 
@@ -799,6 +842,8 @@ ForceLevelReload:               ;quick restart jumps here to preserve world/leve
     stz !AltEntranceControl     ;reset entrance type
     stz !HalfwayPage            ;reset starting page to zero
     stz !GameTimerExpiredFlag   ;clear game timer expired flag to disable time-up screen
+    stz !SkipMetatileBuffer     ;allow metatile buffer to update (needed if warping from 8-4/D-4 ending)
+    stz !AreaMusicOverride      ;clear area music override address used by 8-4
     lda !SavedIntermediateFlag  ;copy saved intermediate flag to skip lives screen if needed
     sta !DisableIntermediate
     ldx #$06                    ;store RNG from practice menu in LFSR bytes
@@ -828,6 +873,12 @@ SetSize:
     sta !Hidden1UpFlag
     lda !SavedEntrancePage      ;copy over saved entrance page (relevant for wrong warps)
     sta !EntrancePage
+    lda !SavedCoinTally         ;copy saved coin tally, relevant for fireworks in TLL
+    sta !CoinTally
+    jsr TwoDigitNumber          ;convert coin tally to two-digit decimal value
+    sta !CoinDisplay+1          ;restore coin display used with status bar
+    lda $00
+    sta !CoinDisplay
     ldx !CurrentGame            ;use our current game to load the correct area pointers
     beq +
     jsl !LoadAreaPointer_TLL
@@ -838,26 +889,26 @@ SetSize:
 
 ControlLevelOption:
     ldx !CurrentGame        ;store smb1/tll flag in X register
-    lda !JoypadBits1Pressed ;check buttons just pressed
+    lda !JoypadBitsAPressed ;check buttons just pressed
     bpl CheckForLevelChange ;if B button not pressed, check for directional input
     jmp WarpToLevel         ;otherwise warp to the currently-selected level
 CheckForLevelChange:
     pha                     ;push to stack for later
-    lda !JoypadBits1Held    ;check buttons currently held
+    lda !JoypadBitsAHeld    ;check buttons currently held
     asl
     bmi ModifyWorldNum      ;if holding Y, modify world number
     pla                     ;check directions just pressed
-    bit #%00000100
-    bne DecrementLevel      ;if pressing down, decrement level
-    bit #%00001000
-    bne IncrementLevel      ;if pressing up, increment level
+    bit #%00000110
+    bne DecrementLevel      ;if pressing down or left, decrement level
+    bit #%00001001
+    bne IncrementLevel      ;if pressing up or right, increment level
     rts                     ;if pressing neither, leave
 ModifyWorldNum:
     pla                     ;check directions just pressed
-    bit #%00000100
-    bne DecWorldNum         ;if pressing down, decrement world
-    bit #%00001000
-    bne IncWorldNum         ;if pressing up, increment world
+    bit #%00000110
+    bne DecWorldNum         ;if pressing down or left, decrement world
+    bit #%00001001
+    bne IncWorldNum         ;if pressing up or right, increment world
     rts                     ;if pressing neither, leave
 DecWorldNum:
     jsr DecrementWorld      ;decrement world number
@@ -969,7 +1020,7 @@ EntranceStuff:
     sta !VRAM_BufferData+24
     tya
     sta !VRAM_BufferData+22
-    lda !MenuEntranceFrame      ;take menu entrance fame and subtract 5 for display
+    lda !MenuEntranceFrame      ;take menu entrance frame and subtract 5 for display
     sec
     sbc #5
     bpl StoreEntranceFrame
@@ -981,7 +1032,40 @@ StoreEntranceFrame:
     sta !VRAM_BufferData+36
     rts
 
+AddSubFramerule:
+    txa                     ;perform directional pad checks
+    bit #%00001000
+    bne AddFramerule        ;if pressing up, advance to next framerule
+    bit #%00000100
+    bne SubFramerule        ;if pressing down, go back to previous framerule
+    rts
+SubFramerule:
+    rep #$20                ;set 16-bit accumulator
+    lda !MenuRNGNumber      ;subtract 21 ($15) from RNG number for previous framerule
+    sec
+    sbc #$0015
+    dec                     ;decrement to account for case where result is $0000
+    bpl IncUpdateFramerule  ;if RNG number within range, undo decrement to store correct number
+    bmi UpdateFramerule     ;if not, branch ahead to get number back in range and store
+AddFramerule:
+    rep #$20                ;set 16-bit accumulator
+    lda !MenuRNGNumber      ;add 21 ($15) to RNG number for next framerule
+    clc
+    adc #$0015
+    bpl UpdateFramerule     ;if RNG number hasn't gone past $7fff, branch ahead
+IncUpdateFramerule:
+    inc                     ;otherwise increment RNG number since we start at $0001
+UpdateFramerule:
+    and #$7fff              ;mask out d15 to keep RNG number within range
+    sta !MenuRNGNumber      ;store the new RNG number
+    sep #$20                ;restore 8-bit accumulator
+    %edit_value_sfx()       ;play edit value sound effect
+    inc !DrawOptionFlag     ;set flag to redraw menu and leave
+    rts
 HandleRNGNumber:
+    lda !JoypadBitsBHeld    ;check if we're holding the X button
+    asl
+    bmi AddSubFramerule     ;if we are, add or subtract RNG by 21 like framerules
     ldx #$ff                ;byte's bitmask is $ff for low byte by default
     lda !MenuSelectionIndex ;store option in A
     bne +                   ;if doing low byte, branch
@@ -997,44 +1081,44 @@ HandleRNGNumber:
     sta $00                 ;store in $00 to use as pointer
     jmp HandleHexNumInput   ;go to general routine for hex number input
 ControlEntranceOption:
-    lda !JoypadBits1Pressed ;check buttons just pressed
-    bpl +                   ;if we haven't pressed B to confirm, branch
+    ldx !JoypadBitsAPressed ;load joypad bits pressed into X register
+    bmi UpdateRNGValues     ;if we pressed B to confirm, branch to update RNG
+    lda !JoypadBitsBPressed ;check if the A button has been pressed
+    bpl +                   ;if not, branch ahead for no confirmation
+    stz !MenuRNGNumber      ;otherwise, clear menu RNG number
+    stz !MenuRNGNumber+1    ;to activate the "random" setting
+UpdateRNGValues:
     %menu_confirm_sfx()     ;otherwise play confirm sfx
     inc !DrawOptionFlag     ;set flag to redraw option
     jmp SetRNGFromNumber    ;and save our new RNG/entrance values
-+:  bit #%00000001
++:  txa                     ;now perform directional pad checks
+    bit #%00000001
     bne IncEntranceSel      ;if pressing right, increment entrance selection
     bit #%00000010
     bne DecEntranceSel      ;if pressing left, decrement entrance selection
-    ldx !MenuSelectionIndex ;get menu selection index
+    ldy !MenuSelectionIndex ;get menu selection index
     beq HandleRNGNumber     ;do RNG number high byte if zero
-    dex
+    dey
     beq HandleRNGNumber     ;do RNG number low byte if one
-    dex
-    bne HandleScreenFlag    ;do screen flag if three
-    bit #%00000100          ;otherwise we're doing the entrance frame (i.e. framerule timer)
-    bne DecrementEntrance   ;if pressing down, increment entrance frame
-    bit #%00001000
-    bne IncrementEntrance   ;if pressing up, increment entrance frame
+    dey
+    beq HandleEntranceFrame ;do entrance frame (i.e. framerule timer) if two
+    bit #%00001100          ;otherwise we're doing the screen flag
+    bne InvertScreenFlag    ;if pressing up or down, invert screen flag
     rts
 IncEntranceSel:
     %increment_option(!MenuSelectionIndex,#4)
 DecEntranceSel:
     %decrement_option(!MenuSelectionIndex,#4)
+HandleEntranceFrame:
+    bit #%00000100
+    bne DecrementEntrance   ;if pressing down, increment entrance frame
+    bit #%00001000
+    bne IncrementEntrance   ;if pressing up, increment entrance frame
+    rts
 DecrementEntrance:
     %decrement_option(!MenuEntranceFrame,#21)
 IncrementEntrance:
     %increment_option(!MenuEntranceFrame,#21)
-RedrawEntranceDisplay:
-    %edit_value_sfx()
-    inc !DrawOptionFlag
-    rts
-HandleScreenFlag:
-    bit #%00000100
-    bne InvertScreenFlag   ;if pressing down, invert screen flag
-    bit #%00001000
-    bne InvertScreenFlag   ;if pressing up, invert screen flag
-    rts
 InvertScreenFlag:
     %invert_option(!MenuScreenFlag)
 
@@ -1077,10 +1161,10 @@ DrawRNGOption:
 
 ControlRNGOption:
     ldx !MenuSelectionIndex ;load index into X register
-    lda !JoypadBits1Held    ;check buttons held
+    lda !JoypadBitsAHeld    ;check buttons held
     asl
     bmi RNGHighNybble       ;if Y button held, do high nybble
-    lda !JoypadBits1Pressed ;otherwise check directions just pressed
+    lda !JoypadBitsAPressed ;otherwise check directions just pressed
     bit #%00000001
     bne DoNextRNGByte       ;if pressing right, go to next byte
     bit #%00000010
@@ -1104,7 +1188,7 @@ RedrawRNG:
     inc !DrawOptionFlag     ;redraw option
     rts
 RNGHighNybble:
-    lda !JoypadBits1Pressed ;check directions just pressed
+    lda !JoypadBitsAPressed ;check directions just pressed
     bit #%00000100
     bne DecRNGHigh          ;if pressing down, decrement RNG high nybble
     bit #%00001000
@@ -1126,7 +1210,7 @@ StoreRNGByte:
 ;----------------------------------------------------------------
 
 ;"RAM ADDRESSES = 0000 0000 "
-RAMOptionText:
+AddressOptionText:
     dw $2c1b, $2c0a, $2c16, $2c28, $2c0a, $2c0d, $2c0d, $2c1b
     dw $2c0e, $2c1c, $2c1c, $2c0e, $2c1c, $2c28, $2c5e, $2c28
     dw $2c00, $2c00, $2c00, $2c00, $2c28, $2c00, $2c00, $2c00
@@ -1165,7 +1249,7 @@ DrawRAMAddrs:
     rts
 
 ControlAddressesOption:
-    lda !JoypadBits1Pressed ;now check directions just pressed
+    lda !JoypadBitsAPressed ;now check directions just pressed
     bit #%00000001
     bne AddByteSelect       ;if pressing right, select other address
     bit #%00000010
@@ -1228,22 +1312,24 @@ DrawPowerupOption:
     rts
 
 ControlPowerupOption:
-    lda !JoypadBits1Pressed ;check buttons just pressed
+    lda !JoypadBitsAPressed ;check buttons just pressed
     bmi UpdatePowerup       ;if B button pressed, update our powerup state
-    bit #%00000100
-    bne DecrementPowerup    ;if pressing down, decrement powerup state
-    bit #%00001000
-    bne IncrementPowerup    ;if pressing up, increment powerup state
+    bit #%00000110
+    bne DecrementPowerup    ;if pressing down or left, decrement powerup state
+    bit #%00001001
+    bne IncrementPowerup    ;if pressing up or right, increment powerup state
     rts                     ;if pressing neither, leave
 UpdatePowerup:
     ldy #$00                ;set player size as big by default
+    %powerup_sfx()          ;play power-up sound by default
     lda !MenuPlayerStatus   ;store menu powerup as actual powerup
     sta !PlayerStatus
     sta !SavedPlayerStatus  ;also update saved copy for level reload
     bne +                   ;if not small, branch
     iny                     ;otherwise increment for correct size
+    %pipe_sfx()             ;play damage sound instead of power-up sound
+    stz $1603               ;remove power-up sound from queue
 +:  sty !PlayerSize         ;set player size
-    %powerup_sfx()
     rts                     ;leave
 IncrementPowerup:
     %increment_option(!MenuPlayerStatus,#3)
@@ -1284,12 +1370,10 @@ Draw1UpOption:
     rts
 
 Control1UpOption:
-    lda !JoypadBits1Pressed ;check buttons just pressed
+    lda !JoypadBitsAPressed ;check buttons just pressed
     bmi Update1UpFlag       ;if B button pressed, update saved 1-UP flag
-    bit #%00000100
-    bne Invert1UpFlag       ;if pressing down, invert 1-UP flag
-    bit #%00001000
-    bne Invert1UpFlag       ;if pressing up, invert 1-UP flag
+    bit #%00001111
+    bne Invert1UpFlag       ;if pressing any direction, invert 1-UP flag
     rts                     ;if pressing neither, leave
 Invert1UpFlag:
     %invert_option(!Menu1UpFlag)
@@ -1312,11 +1396,38 @@ InvincibilityOptionText:
 ;for now, this works like Pellsson's "GIVE STAR" feature...
 ;perhaps in the future, we can change this to toggleable intangibility?
 ControlInvincibilityOption:
-    lda !JoypadBits1Pressed ;check buttons just pressed
+    lda !JoypadBitsAPressed ;check buttons just pressed
     bpl +                   ;if B button not pressed, leave
     lda #$ff                ;otherwise give invincibility
     sta !StarInvincibleTimer
     %powerup_sfx()          ;play power-up sound
++:  rts
+
+;----------------------------------------------------------------
+
+;"RETURN TO TITLE SCREEN    "
+TitleOptionText:
+    dw $201b, $200e, $201d, $201e, $201b, $2017, $2028, $201d
+    dw $2018, $2028, $201d, $2012, $201d, $2015, $200e, $2028
+    dw $201c, $200c, $201b, $200e, $200e, $2017, $2c28, $2c28
+    dw $2c28, $2c28
+
+ControlTitleOption:
+    lda !JoypadBitsAPressed     ;check buttons just pressed
+    bpl +                       ;if B button not pressed, leave
+    stz !OperMode               ;reset modes of operation
+    stz !OperMode_Task          ;to return player to title screen
+    stz !MoveSpritesOffscreen   ;clear flag related to sprites
+    stz !SkipMetatileBuffer     ;allow metatile buffer to update
+    stz !CurrentRNGNumber       ;reset RNG number too, just in case
+    stz !CurrentRNGNumber+1
+    stz !CurrentBrother         ;smb1 requires this so we don't have red luigi
+    lda #$01
+    sta !FixFadeoutBGScroll     ;set flag to perform fade-out
+    inc !DisableScreenFlag      ;set screen disable flag
+    %menu_confirm_sfx()         ;play confirmation sound
+    %fadeout_music()            ;set music fade-out
+    jmp ForceMenuClose          ;force the practice menu to close
 +:  rts
 
 ;----------------------------------------------------------------
@@ -1353,12 +1464,10 @@ DrawPlayerOption:
     rts
 
 ControlPlayerOption:
-    lda !JoypadBits1Pressed ;check buttons just pressed
+    lda !JoypadBitsAPressed ;check buttons just pressed
     bmi UpdatePlayer        ;if B button pressed, update current player
-    bit #%00000100
-    bne InvertPlayer        ;if pressing down, invert player
-    bit #%00001000
-    bne InvertPlayer        ;if pressing up, invert player
+    bit #%00001111
+    bne InvertPlayer        ;if pressing any direction, invert player
     rts                     ;if pressing neither, leave
 InvertPlayer:
     %invert_option(!MenuSelectedPlayer)
@@ -1409,21 +1518,22 @@ DrawCoinsOption:
     rts
 
 ControlCoinsOption:
-    lda !JoypadBits1Pressed ;check buttons just pressed
+    lda !JoypadBitsAPressed ;check buttons just pressed
     bmi UpdateCoins         ;if B button pressed, update coin count
     pha                     ;retrieve pressed buttons later
-    lda !JoypadBits1Held    ;check held buttons
+    lda !JoypadBitsAHeld    ;check held buttons
     asl
     bmi CoinTens            ;if holding Y, do tens place
     pla
-    bit #%00000100
-    bne DecrementCoins      ;if pressing down, decrement coins
-    bit #%00001000
-    bne IncrementCoins      ;if pressing up, increment coins
+    bit #%00000110
+    bne DecrementCoins      ;if pressing down or left, decrement coins
+    bit #%00001001
+    bne IncrementCoins      ;if pressing up or right, increment coins
     rts
 UpdateCoins:
     lda !MenuCoinTally     ;update internal coin tally
     sta !CoinTally
+    sta !SavedCoinTally    ;update saved copy of coin tally
     jsr TwoDigitNumber     ;perform sub to convert to decimal
     sta !CoinDisplay+1     ;update coin display used with status bar
     lda $00
@@ -1454,10 +1564,10 @@ DecrementCoins:
     %decrement_option(!MenuCoinTally,#100)
 CoinTens:
     pla
-    bit #%00000100
-    bne SubTenCoins      ;if pressing down, decrement tens place
-    bit #%00001000
-    bne AddTenCoins      ;if pressing up, increment tens place
+    bit #%00000110
+    bne SubTenCoins      ;if pressing down or left, decrement tens place
+    bit #%00001001
+    bne AddTenCoins      ;if pressing up or right, increment tens place
     rts
 SubTenCoins:
     lda !MenuCoinTally   ;decrement tens place of menu coin tally
@@ -1480,6 +1590,8 @@ ChangeCoinTally:
     %edit_value_sfx()
     inc !DrawOptionFlag  ;redraw option and leave
     rts
+
+;----------------------------------------------------------------
 
 ;"WARPS USED = 000          "
 WarpsOptionText:
@@ -1512,12 +1624,10 @@ DrawWarpsOption:
     rts
 
 ControlWarpsOption:
-    lda !JoypadBits1Pressed ;check buttons just pressed
+    lda !JoypadBitsAPressed ;check buttons just pressed
     bmi UpdateWarpsFlag     ;if B button pressed, update warps flag
-    bit #%00000100
-    bne InvertWarpsFlag     ;if pressing down, invert flag
-    bit #%00001000
-    bne InvertWarpsFlag     ;if pressing up, invert flag
+    bit #%00001111
+    bne InvertWarpsFlag     ;if pressing any direction, invert flag
     rts                     ;if pressing neither, leave
 InvertWarpsFlag:
     %invert_option(!MenuWarpsFlag)
@@ -1565,12 +1675,12 @@ PowersOfSixteenTable:
 HandleHexNumInput:
     sep #$20                ;restore 8-bit accumulator
     ldx #$00                ;set index for LUT to zero by default
-    lda !JoypadBits1Held
+    lda !JoypadBitsAHeld
     bit #%01000000          ;holding Y button?
     beq CheckAddSubValue    ;no, branch
     inx                     ;if holding Y, increment index for high nybble
 CheckAddSubValue:
-    lda !JoypadBits1Pressed ;now check directions just pressed
+    lda !JoypadBitsAPressed ;now check directions just pressed
     bit #%00000100
     bne SubtractValue       ;if pressing down, subtract from value
     bit #%00001000
@@ -1627,3 +1737,5 @@ org $0cfde0
     db $7E,$7E,$FF,$81,$7E,$7E,$00,$00
     db $00,$00,$7C,$7C,$FE,$82,$FC,$84  ;flag icon for smb1
     db $F8,$88,$F0,$90,$E0,$A0,$40,$40
+    db $0C,$0C,$1E,$12,$3E,$22,$7E,$42  ;cursor icon for menu
+    db $7E,$42,$3E,$22,$1E,$12,$0C,$0C

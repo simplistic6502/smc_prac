@@ -109,33 +109,35 @@ org $0d8c1a ;seems like an extra copy that doesn't need updating, but hey why no
 ;BottomStatusLine replacement (hacky)
 org $0d8a5a
     %setup_vram_buffer($4958,$0380)
-    lda #$2c0e
+    lda #$2c0e                  ;"E" for entrance frame indicator
     sta !VRAM_BufferData,x
     sep #$30
-    lda #$20
+    lda #$20                    ;palette and priority for entrance frame
     sta !VRAM_BufferData+3,x
-    lda !IntervalTimerControl
+    lda !IntervalTimerControl   ;print framerule value for entrance frame
     sta !VRAM_BufferData+2,x
     phx
     ldy #$00
--:  lda SockfolderText_TLL,y
+-:  lda SockfolderText_TLL,y    ;print remaining bottom status bar text
     sta !VRAM_BufferData+4,x
     inx
     iny
     cpy #22
     bcc -
-    lda #$ff
+    lda #$ff                    ;append terminator
     sta !VRAM_BufferData+4,x
     plx
     txa
     clc
-    adc #30
+    adc #30                     ;move buffer offset up
     sta !VRAM_BufferOffset
-    jmp $8bc8
+    jmp $8bc8                   ;jump to handle next screen task
 SockfolderText_TLL:
     dw $6358,$0100,$2c1c ;"S"
     dw $6458,$0740,$2000 ;"0000" after S
     dw $7058,$0500,$2c15,$2000,$2000 ;"L00" for lag counter
+
+warnpc $0d8ac0
 
 ;save RNG and entrance frame when loading area pointer
 org $0d861d ;title screen (reorder code to store hidden 1-UP flag first)
@@ -175,9 +177,12 @@ org $0dadde
 org $0de5b4
     sty !WarpWorldNumber
 org $0de5d1 ;don't reset level/area numbers when taking warp zone
+    bra $04
     nop
     nop
     nop
     nop
-    nop
-    nop
+
+;hijack to set custom addresses on game boot
+org $0d803c
+    jsl InitCustomAddresses

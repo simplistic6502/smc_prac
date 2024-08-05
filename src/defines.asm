@@ -1,10 +1,12 @@
+;JoypadA = BYSTudlr
+;JoypadB = AXLR0000
+
 ;smb1/smbtll addresses
 ;normal defines
 !FrameCounter = $09
 !GameEngineSubroutine = $0f
 !Player_X_Speed = $5d
 !DigitModifier = $0145
-;!NMIFlag = $0154
 !Player_X_Position = $0219
 !Enemy_X_Position = $021a
 !Player_Y_Position = $0237
@@ -34,6 +36,7 @@
 !PrimaryHardMode = $076a
 !OperMode = $0770
 !OperMode_Task = $0772
+!DisableScreenFlag = $0774
 !PauseModeFlag = $0776
 !IntervalTimerControl = $0787
 !JumpSwimTimer = $078a
@@ -43,17 +46,20 @@
 !WorldEndTimer = $07b1
 !PseudoRandomBitReg = $07b7
 !CoinDisplay = $07de
-!CompletedWorlds = $07fa ; seems to be a leftover from 2j fds
+!CompletedWorlds = $07fa ;seems to be a leftover from 2j fds
 !HardWorldsFlag = $07fb ;tll letter worlds
 !MoreDifficultQuestFlag = $07fc
 !ScreenFadeoutFlag = $0e67
 !FixFadeoutBGScroll = $0e7f
 !CurrentBrother = $0ec2 ;yeah these are different for whatever reason
+!SkipMetatileBuffer = $0ec9
+!AreaMusicOverride = $0edf
 !WarpsUsedFlag = $0f2b ;disallows tll world 9 if non-zero
-!JoypadBits1Held = $0ff4
-!JoypadBits1Pressed = $0ff6
-!JoypadBits2Held = $0ff8
-!JoypadBits2Pressed = $0ffa
+!JoypadBitsAHeld = $0ff4
+!JoypadBitsAPressed = $0ff6
+!JoypadBitsBHeld = $0ff8
+!JoypadBitsBPressed = $0ffa
+!ScreenBrightness_SMB1 = $1201
 !VRAM_BufferOffset = $1700
 !VRAM_BufferAddr = $1702
 !VRAM_BufferLen = $1704
@@ -82,9 +88,13 @@
 !Level3 = 2
 !Level4 = 3
 
+;smb1/smbtll code
 !SkipRNGAndSound_SMB1 = $0381da
 !WaitForNMI_SMB1 = $0382cf
+!ClearBG3Tilemap = $0480ae
+!ClearBG3Tilemap_w = $80ae
 !SoundEngine = $048163
+!SoundEngine_w = $8163
 !LoadAreaPointer_SMB1 = $04c00b
 !ReadJoypads_SMB1 = $05c800
 !SkipRNGAndSound_TLL = $0d8098
@@ -92,9 +102,79 @@
 !LoadAreaPointer_TLL = $0ec54c
 !ReadJoypads_TLL = $0fd000
 
+;smb2 addresses
+!Player1JoypadAHeld = $f6
+!Player1JoypadAHeld_w = $00f6
+!Player1JoypadBHeld = $f8
+!Player1JoypadBHeld_w = $00f8
+!Player1JoypadAPress = $fa
+!Player1JoypadAPress_w = $00fa
+!Player1JoypadBPress = $fc
+!Player1JoypadBPress_w = $00fc
+!ScreenBrightness_SMB2 = $fe
+!ScreenBrightness_SMB2_w = $00fe
+
+;smb3 addresses
+!ScreenBrightness_SMB3 = $16
+!ScreenBrightness_SMB3_w = $0016
+!Controller1AHolding = $f2
+!Controller1AHolding_w = $00f2
+!Controller1BHolding = $f4
+!Controller1BHolding_w = $00f4
+!Controller1APress = $f6
+!Controller1APress_w = $00f6
+!Controller1BPress = $f8
+!Controller1BPress_w = $00f8
+
+;smc defines
+!Joypad1AHeld = $f0
+!Joypad1AHeld_w = $00f0
+!Joypad1BHeld = $f2
+!Joypad1BHeld_w = $00f2
+!Joypad1APressed = $f4
+!Joypad1APressed_w = $00f4
+!Joypad1BPressed = $f6
+!Joypad1BPressed_w = $00f6
+!ScreenBrightness_SMC = $0100
+!SelectedGame = $7fff00
+
+;SNES hardware registers
+!INIDISP = $2100
+!VMAIN = $2115
+!VMADDL = $2116
+!VMADDH = $2117
+!CGADD = $2121
+!VMDATALREAD = $2139
+!VMDATAHREAD = $213a
+!CGDATAREAD = $213b
+!APUIO0 = $2140
+!APUIO1 = $2141
+!APUIO2 = $2142
+!APUIO3 = $2143
+!WMADDL = $2181
+!WMADDM = $2182
+!WMADDH = $2183
+!NMITIMEN = $4200
+!MDMAEN = $420b
+!RDNMI = $4210
+!HVBJOY = $4212
+!DMAP0 = $4300
+!BBAD0 = $4301
+!A1T0L = $4302
+!A1T0H = $4303
+!A1B0 = $4304
+!DAS0L = $4305
+!DAS0H = $4306
+!DAS0B = $4307
+
 ;custom defines
-!MAX_OPTIONS_SMB1 = 7
-!MAX_OPTIONS_TLL = 10
+!MAX_OPTIONS = 11
+!SMB1_ONLY = 0
+!TLL_ONLY = 1
+!BOTH_GAMES = 2
+!DEFAULTADDR_A = $03ad
+!DEFAULTADDR_B = $0705
+!SAVELOAD_DELAY = $000f
 
 !WarpWorldNumber = $04fe
 !LagCounter = $04ff
@@ -118,6 +198,7 @@ endmacro
 %malloc_prac(CustomAddressA,2)
 %malloc_prac(CustomAddressB,2)
 %malloc_prac(MenuSelectedPlayer,1)
+%malloc_prac(SavedCoinTally,1)
 %malloc_prac(MenuCoinTally,1)
 %malloc_prac(MenuSelectionIndex,1)
 %malloc_prac(SavedRNGBytes,7)
@@ -223,4 +304,9 @@ endmacro
 macro menu_close_sfx()
 	lda #$20
 	sta $1600
+endmacro
+
+macro fadeout_music()
+    lda #$80
+    sta $1603
 endmacro

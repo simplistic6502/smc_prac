@@ -100,39 +100,41 @@ org $038f23
     db $58,$54,$80,$03,$0a,$2c ; "A" for RAM address A
     db $0b,$2c ; "B" for RAM address B
     db $58,$59,$00,$07,$1D,$20,$12,$20,$16,$20,$0E,$20 ; "TIME"
-    db $58,$6b,$00,$07,$5f,$2c,$25,$20,$00,$20,$00,$20 ; "Gx00" for backwards flagpole
+    db $58,$6b,$00,$07,$5f,$2c,$25,$20,$00,$20,$00,$20 ; "|>x00" for backwards flagpole
     db $ff,$ff ; unused bytes
 
 ;BottomStatusLine replacement (hacky)
 org $038c8d
     %setup_vram_buffer($4958,$0380)
-    lda #$2c0e
+    lda #$2c0e                  ;"E" for entrance frame indicator
     sta !VRAM_BufferData,x
     sep #$30
-    lda #$20
+    lda #$20                    ;palette and priority for entrance frame
     sta !VRAM_BufferData+3,x
-    lda !IntervalTimerControl
+    lda !IntervalTimerControl   ;print framerule value for entrance frame
     sta !VRAM_BufferData+2,x
     phx
     ldy #$00
--:  lda SockfolderText_SMB1,y
+-:  lda SockfolderText_SMB1,y   ;print remaining bottom status bar text
     sta !VRAM_BufferData+4,x
     inx
     iny
     cpy #22
     bcc -
-    lda #$ff
+    lda #$ff                    ;append terminator
     sta !VRAM_BufferData+4,x
     plx
     txa
     clc
-    adc #30
+    adc #30                     ;move buffer offset up
     sta !VRAM_BufferOffset
-    jmp $8f08
+    jmp $8f08                   ;jump to handle next screen task
 SockfolderText_SMB1:
     dw $6358,$0100,$2c1c ;"S"
     dw $6458,$0740,$2000 ;"0000" after S
     dw $7058,$0500,$2c15,$2000,$2000 ;"L00" for lag counter
+
+warnpc $038cfe
 
 ;save RNG and entrance frame when loading area pointer (need to do warpzones)
 org $0387eb ;title screen (reorder code to store hidden 1-UP flag first)
@@ -171,9 +173,16 @@ org $03afd2
 org $03e689
     sty !WarpWorldNumber
 org $03e6a3 ;don't reset level/area numbers when taking warp zone
+    bra $04
     nop
     nop
     nop
     nop
-    nop
-    nop
+
+;hijack to set custom addresses on game boot
+org $03817e
+    jsl InitCustomAddresses
+
+;do not draw world/level numbers in 2 player game
+org $049366
+    bra $5f
