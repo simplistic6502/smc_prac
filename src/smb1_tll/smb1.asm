@@ -76,11 +76,15 @@ org $038b6f
     stz !DigitModifier,x
 org $03b948
     stz !DigitModifier,x
-org $03bd52
+org $03bd50 ;also skip frame counter update on coin collection
     stz !DigitModifier+4
+    bra $09
 ;these ones don't seem necessary, but good precedent
-org $03bfbc
+org $03bfbc ;also skip frame counter update on brick break
     stz !DigitModifier+5
+    nop
+    nop
+    nop
 org $03d7a7
     stz !DigitModifier+4
 org $03d813
@@ -106,7 +110,7 @@ org $038f23
 ;BottomStatusLine replacement (hacky)
 org $038c8d
     %setup_vram_buffer($4958,$0380)
-    lda #$2c0e                  ;"E" for entrance frame indicator
+    lda #$2c25                  ;"x" for entrance frame indicator
     sta !VRAM_BufferData,x
     sep #$30
     lda #$20                    ;palette and priority for entrance frame
@@ -153,13 +157,13 @@ org $03b250 ;warpzone end
     jsl ChgAreaModeHijack
     nop
 
-;lag counter hack
-org $03831b
-    jmp DoLag_SMB1
+;level timer & lag counter hack
+org $038316
+    jsr DoTimerLag_SMB1
 org $039d6b
-DoLag_SMB1:
-    jsl UpdateLagCounter
-    jmp $8443
+DoTimerLag_SMB1:
+    jsl UpdateLevelTimer
+    rts
 
 ;update RNG number
 org $0381d6
@@ -186,3 +190,11 @@ org $03817e
 ;do not draw world/level numbers in 2 player game
 org $049366
     bra $5f
+
+;display frame counter on bowser spawn
+org $03c93f
+    jsl BowserSpawn
+
+;hijack to render level timer on lives screen
+org $038d96
+    jsl RenderLevelTimer_SMB1

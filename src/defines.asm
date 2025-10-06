@@ -7,13 +7,16 @@
 !GameEngineSubroutine = $0f
 !Player_X_Speed = $5d
 !DigitModifier = $0145
+!NMIAckFlag = $0154
 !Player_X_Position = $0219
 !Enemy_X_Position = $021a
 !Player_Y_Position = $0237
+!BowserMovementSpeed = $0365
 !SprObject_X_MoveForce = $0401
 !WarpZoneControl = $06d6
 !Player_X_Scroll = $06ff
 !ScreenEdge_X_Pos = $071c
+!ScreenRight_X_Pos = $071d
 !MoveSpritesOffscreen = $0722
 !TimerControl = $0747
 !EntrancePage = $0751
@@ -22,6 +25,7 @@
 !PlayerSize = $0754
 !PlayerStatus = $0756
 !FetchNewGameTimerFlag = $0757
+!JoypadOverride = $0758
 !GameTimerExpiredFlag = $0759
 !NumberOfLives = $075a
 !HalfwayPage = $075b
@@ -49,6 +53,7 @@
 !CompletedWorlds = $07fa ;seems to be a leftover from 2j fds
 !HardWorldsFlag = $07fb ;tll letter worlds
 !MoreDifficultQuestFlag = $07fc
+!MosaicFadeoutFlag = $0e4f
 !ScreenFadeoutFlag = $0e67
 !FixFadeoutBGScroll = $0e7f
 !CurrentBrother = $0ec2 ;yeah these are different for whatever reason
@@ -64,6 +69,7 @@
 !VRAM_BufferAddr = $1702
 !VRAM_BufferLen = $1704
 !VRAM_BufferData = $1706
+!DemoEnable_TLL = $7ffb05
 
 ;smb1/smbtll labels
 !TitleScreenModeValue = 0
@@ -95,10 +101,13 @@
 !ClearBG3Tilemap_w = $80ae
 !SoundEngine = $048163
 !SoundEngine_w = $8163
+!RenderLevelPreview_SMB1 = $0492f7
+!RenderLevelPreview_SMB1_w = $92f7
 !LoadAreaPointer_SMB1 = $04c00b
 !ReadJoypads_SMB1 = $05c800
 !SkipRNGAndSound_TLL = $0d8098
 !WaitForNMI_TLL = $0d8181
+!RenderLevelPreview_TLL = $0e9643
 !LoadAreaPointer_TLL = $0ec54c
 !ReadJoypads_TLL = $0fd000
 
@@ -168,7 +177,7 @@
 !DAS0B = $4307
 
 ;custom defines
-!MAX_OPTIONS = 11
+!MAX_OPTIONS = 10
 !SMB1_ONLY = 0
 !TLL_ONLY = 1
 !BOTH_GAMES = 2
@@ -216,6 +225,9 @@ endmacro
 %malloc_prac(Saved1UpFlag,1)
 %malloc_prac(Menu1UpFlag,1)
 %malloc_prac(SavedEntrancePage,1)
+
+%malloc_prac(LevelTimer,3)
+%malloc_prac(LevelTimerFlags,1)
 
 ;macros
 macro setup_vram_buffer(addr,len)

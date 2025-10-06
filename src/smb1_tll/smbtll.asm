@@ -72,11 +72,15 @@ org $0d8916
     stz !DigitModifier,x
 org $0db6e1
     stz !DigitModifier,x
-org $0dbb03
+org $0dbb01 ;also skip frame counter update on coin collection
     stz !DigitModifier+4
+    bra $06
 ;these ones don't seem necessary, but good precedent
-org $0dbd89
+org $0dbd89 ;also skip frame counter update on brick break
     stz !DigitModifier+5
+    nop
+    nop
+    nop
 org $0dd67b
     stz !DigitModifier+4
 org $0dd6ec
@@ -109,7 +113,7 @@ org $0d8c1a ;seems like an extra copy that doesn't need updating, but hey why no
 ;BottomStatusLine replacement (hacky)
 org $0d8a5a
     %setup_vram_buffer($4958,$0380)
-    lda #$2c0e                  ;"E" for entrance frame indicator
+    lda #$2c25                  ;"x" for entrance frame indicator
     sta !VRAM_BufferData,x
     sep #$30
     lda #$20                    ;palette and priority for entrance frame
@@ -157,13 +161,13 @@ org $0daf82 ;warpzone end
     jsl ChgAreaModeHijack
     nop
 
-;lag counter hack
-org $0d81a7
-    jmp DoLag_TLL
+;level timer & lag counter hack
+org $0d81a2
+    jsr DoTimerLag_TLL
 org $0d98dd
-DoLag_TLL:
-    jsl UpdateLagCounter
-    jmp $82ec
+DoTimerLag_TLL:
+    jsl UpdateLevelTimer
+    rts
 
 ;update RNG number
 org $0d8094
@@ -186,3 +190,37 @@ org $0de5d1 ;don't reset level/area numbers when taking warp zone
 ;hijack to set custom addresses on game boot
 org $0d803c
     jsl InitCustomAddresses
+
+;display frame counter on bowser spawn
+org $0dc803
+    jsl BowserSpawn
+
+;hijack to render level timer on lives screen
+org $0d8afd
+    jsl RenderLevelTimer_TLL
+
+;use vram buffer offset when printing game text (needed to display level timer)
+org $0d8e17
+    ldy !VRAM_BufferOffset
+org $0d8e3d ;hack to get VRAM_BufferOffset back in Y
+    jsr ReloadVRAMOffset
+org $0d8e63 ;rewritten lives screen display code
+    lda $e4
+    beq +
+    sta !VRAM_BufferData+8,y
++:  lda $e5
+    sta !VRAM_BufferData+10,y
+    lda $e6
+    sta !VRAM_BufferData+12,y
+    lda !WorldNumber
+    inc
+    sta !VRAM_BufferData+38,y
+    lda !LevelNumber
+    inc
+    sta !VRAM_BufferData+42,y
+    rts
+org $0d98e2
+ReloadVRAMOffset:
+    ldy !VRAM_BufferOffset
+    lda !NumberOfLives
+    rts

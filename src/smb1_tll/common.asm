@@ -14,11 +14,29 @@ PrintTimerFrame:
     sta !VRAM_BufferData,x          ;write to buffer
     lda #$20                        ;write high byte to buffer
     sta !VRAM_BufferData+1,x
-    %update_buffer_offset($0001)    ;apprend terminator and update buffer offset
+    %update_buffer_offset($0001)    ;append terminator and update buffer offset
     pla                             ;pull from stack to set Z flag, if relevant
     rtl                             ;return
 
+UpdateLevelTimer:
+    lda !LevelTimerFlags        ;check level timer flags for d0 set
+    lsr
+    bcc UpdateLagCounter        ;if clear, do not modify level timer
+    lda !PracticeMenuFlag       ;don't modify level timer if practice menu open
+    bne UpdateLagCounter
+    ldx #$00                    ;otherwise we need to increment the timer
+-:  lda !LevelTimer,x           ;add one to current unit of level timer
+    inc
+    sta !LevelTimer,x
+    cmp #60                     ;is unit over 59?
+    bcc UpdateLagCounter        ;no, we're done here
+    stz !LevelTimer,x           ;otherwise reset unit to zero
+    inx                         ;increment X to add one to next unit of timer
+    cpx #$03                    ;abort if trying to increment hour
+    bcc -
 UpdateLagCounter:
+    lda !NMIAckFlag
+    beq ++
     lda !OperMode               ;check mode of operation (mostly a copy-paste from practice menu)
     cmp #!VictoryModeValue
     beq +                       ;if victory mode, allow adding to lag counter
@@ -32,7 +50,8 @@ UpdateLagCounter:
     lda !PracticeMenuFlag       ;...same goes for the practice menu (because that'd be weird)
     bne ++
     inc !LagCounter             ;if we meet these conditions and the game lagged, add to counter
-++: rtl
+++: lda !NMIAckFlag             ;load NMI acknowledge flag into A to satisfy branch condition on return
+    rtl
 
 ChgAreaModeHijack:              ;hijack to store game info on warp zone completion
     lda !WarpZoneControl        ;did we exit level via warpzone?
@@ -78,6 +97,8 @@ SaveRNG_EntranceFrame:
     sta !SavedEntrancePage
     lda !CoinTally              ;copy coin tally for level reload
     sta !SavedCoinTally
+    lda #$80                    ;disable operation of level timer but render on lives screen
+    sta !LevelTimerFlags
     rts
 
 ;RNG enters a 32767-frame loop 39 iterations after seeding...we assign a
@@ -113,6 +134,14 @@ InitCustomAddresses:
     sta !CustomAddressB
     sep #$20                    ;restore 8-bit accumulator
     jmp !ClearBG3Tilemap_w      ;clear BG3 tilemap and return to previous ROM bank
+
+RenderLevelTimer_SMB1:
+    jsl RenderLevelTimer            ;print level timer on the lives screen
+    jmp !RenderLevelPreview_SMB1_w  ;then prepare lives screen as we're supposed to
+
+RenderLevelTimer_TLL:
+    jsl RenderLevelTimer            ;print level timer on the lives screen
+    jml !RenderLevelPreview_TLL     ;then prepare lives screen as we're supposed to
 
 org $05ee5d ;all other practice functions are located at the end of bank $05
 PrintRemainderFlagpole:
@@ -170,6 +199,8 @@ VerticalPipeEntry:
     lda #$03                    ;vertical pipe subroutine
     bra +
 PlayerRdy:
+    lda #$01
+    sta !LevelTimerFlags        ;re-enable level timer
     lda #$08                    ;player control subroutine
 +:  sta !GameEngineSubroutine   ;set player subroutine depending on how we got here
 UpdateFrameCounter:
@@ -185,6 +216,13 @@ PlayerAxeGrab:
     lda #$18                    ;set speed on axe grab and return
     sta !Player_X_Speed
     rtl
+BowserSpawn:
+    lsr
+    sta !BowserMovementSpeed    ;store Bowser movement speed
+    phx
+    jsr UpdateFrameCounterInner ;display frame counter
+    plx
+    rtl
 
 BackwardsFlagValue:
     lda !IntervalTimerControl           ;only draw this every four frames
@@ -197,10 +235,15 @@ BackwardsFlagValue:
     lda #$20                            ;set priority and palette
     sta !VRAM_BufferData+1,x
     sta !VRAM_BufferData+3,x
-    lda !Enemy_X_Position+9             ;perform the calculation that causes backwards flag grab
+    lda !LevelNumber                    ;check if we're on a castle stage
+    cmp #!Level4
+    bne +                               ;if not, print standard backwards flag value
+    lda !ScreenRight_X_Pos              ;otherwise, print X coordinate of right edge of the screen
+    bra ++                              ;(this is useful for managing camera manipulation in warpless)
++:  lda !Enemy_X_Position+9             ;perform the calculation that causes backwards flag grab
     sec
     sbc !ScreenEdge_X_Pos
-    jsr GetNybbles                      ;get nybbles for result
+++: jsr GetNybbles                      ;get nybbles for result
     sta !VRAM_BufferData+2,x            ;print byte as two-digit hex number
     tya
     sta !VRAM_BufferData,x
@@ -440,6 +483,42 @@ UpdateCustomAddresses:
     sta !VRAM_BufferOffset   ;update VRAM buffer offset accordingly
 +:  rts
 
+RenderLevelTimer:
+    lda !LevelTimerFlags            ;if d7 clear, don't render level timer
+    bpl +
+    %setup_vram_buffer($cc58,$0f00) ;set destination address and length
+    lda #$2061                      ;initialize level timer string
+    sta !VRAM_BufferData,x
+    sta !VRAM_BufferData+2,x
+    sta !VRAM_BufferData+4,x
+    sta !VRAM_BufferData+6,x
+    sta !VRAM_BufferData+8,x
+    lda #$2062
+    sta !VRAM_BufferData+10,x
+    sta !VRAM_BufferData+12,x
+    sta !VRAM_BufferData+14,x
+    sep #$20                        ;set 8-bit accumulator
+    lda !LevelTimer                 ;print frames
+    jsr TwoDigitNumber
+    sta !VRAM_BufferData+14,x
+    lda $00
+    sta !VRAM_BufferData+12,x
+    lda !LevelTimer+1               ;print seconds
+    jsr TwoDigitNumber
+    sta !VRAM_BufferData+8,x
+    lda $00
+    sta !VRAM_BufferData+6,x
+    lda !LevelTimer+2               ;print minutes
+    jsr TwoDigitNumber
+    sta !VRAM_BufferData+2,x
+    lda $00
+    sta !VRAM_BufferData,x
+    %update_buffer_offset($000f)    ;append terminator and update buffer offset
++:  stz !LevelTimer                 ;reset level timer for the next stage
+    stz !LevelTimer+1
+    stz !LevelTimer+2
+    rtl
+
 PracticeMenu_SMB1:
     jsl !ReadJoypads_SMB1       ;read controllers
     stz !CurrentGame            ;use variable to indicate we're in smb1
@@ -635,7 +714,6 @@ OptionTextPointers:
     dw LevelOptionText
     dw PowerupOptionText
     dw EntranceOptionText
-    dw RNGOptionText
     dw CoinsOptionText
     dw AddressOptionText
     dw PlayerOptionText
@@ -647,7 +725,6 @@ OptionDrawPointers:
     dw DrawLevelOption
     dw DrawPowerupOption
     dw DrawEntranceOption
-    dw DrawRNGOption
     dw DrawCoinsOption
     dw DrawAddressesOption
     dw DrawPlayerOption
@@ -704,7 +781,6 @@ OptionCtrlPointers:
     dw ControlLevelOption
     dw ControlPowerupOption
     dw ControlEntranceOption
-    dw ControlRNGOption
     dw ControlCoinsOption
     dw ControlAddressesOption
     dw ControlPlayerOption
@@ -713,7 +789,6 @@ OptionCtrlPointers:
     dw ControlInvincibilityOption
     dw ControlTitleOption
 OptionAllowedGame:
-    db !BOTH_GAMES
     db !BOTH_GAMES
     db !BOTH_GAMES
     db !BOTH_GAMES
@@ -838,8 +913,10 @@ ForceLevelReload:               ;quick restart jumps here to preserve world/leve
     sta !FetchNewGameTimerFlag  ;set flag to reset game timer
     sta !ScreenFadeoutFlag      ;set flag to do fadeout animation
     sta !FixFadeoutBGScroll     ;set flag to maintain scroll value of BG on fadeout (also needed to clear practice menu)
+    stz !MosaicFadeoutFlag      ;do not perform mosaic fadeout
     stz !MoveSpritesOffscreen   ;clear flag responsible for moving sprites offscreen
     stz !AltEntranceControl     ;reset entrance type
+    stz !JoypadOverride         ;reset joypad override to prevent vine from spawning
     stz !HalfwayPage            ;reset starting page to zero
     stz !GameTimerExpiredFlag   ;clear game timer expired flag to disable time-up screen
     stz !SkipMetatileBuffer     ;allow metatile buffer to update (needed if warping from 8-4/D-4 ending)
@@ -879,6 +956,10 @@ SetSize:
     sta !CoinDisplay+1          ;restore coin display used with status bar
     lda $00
     sta !CoinDisplay
+    stz !LevelTimer             ;reset the level timer (necessary for underground/underwater stages)
+    stz !LevelTimer+1
+    stz !LevelTimer+2
+    stz !LevelTimerFlags        ;disable operation of level timer and do not render on lives screen
     ldx !CurrentGame            ;use our current game to load the correct area pointers
     beq +
     jsl !LoadAreaPointer_TLL
@@ -1124,91 +1205,6 @@ InvertScreenFlag:
 
 ;----------------------------------------------------------------
 
-;"RNG = 00 00 00 00 00 00 00"
-RNGOptionText:
-    dw $2c1b, $2c17, $2c10, $2c28, $2c5e, $2c28, $2c00, $2c00
-    dw $2c28, $2c00, $2c00, $2c28, $2c00, $2c00, $2c28, $2c00
-    dw $2c00, $2c28, $2c00, $2c00, $2c28, $2c00, $2c00, $2c28
-    dw $2c00, $2c00
-
-;pretty bad because this assumes high byte never changes
-DrawRNGOption:
-    ldx #$06                    ;start with last byte of RNG
--:  ldy !SavedRNGBytes,x        ;load saved RNG byte in Y
-    phx                         ;push index to stack for now
-    txa                         ;multiply index by 6 for correct offset
-    asl
-    sta $00
-    asl
-    clc
-    adc $00
-    tax
-    tya                         ;transfer RNG byte to A for routine
-    jsr GetNybbles
-    sta !VRAM_BufferData+14,x   ;write byte to buffer
-    tya
-    sta !VRAM_BufferData+12,x
-    txy                         ;store index * 6 in Y
-    plx                         ;restore original X
-    cpx !MenuSelectionIndex     ;are we on the selected byte?
-    bne +                       ;no, branch to decrement index
-    lda #$20                    ;yes, color selected byte
-    sta !VRAM_BufferData+13,y
-    sta !VRAM_BufferData+15,y
-+:  dex
-    bpl -                       ;repeat until all seven bytes drawn
-    rts
-
-ControlRNGOption:
-    ldx !MenuSelectionIndex ;load index into X register
-    lda !JoypadBitsAHeld    ;check buttons held
-    asl
-    bmi RNGHighNybble       ;if Y button held, do high nybble
-    lda !JoypadBitsAPressed ;otherwise check directions just pressed
-    bit #%00000001
-    bne DoNextRNGByte       ;if pressing right, go to next byte
-    bit #%00000010
-    bne DoPrevRNGByte       ;if pressing left, go to previous byte
-    bit #%00000100
-    bne DecrementRNG        ;if pressing down, decrement RNG byte
-    bit #%00001000
-    bne IncrementRNG        ;if pressing up, increment RNG byte
-    rts
-DoNextRNGByte:
-    %increment_option(!MenuSelectionIndex,#7)
-DoPrevRNGByte:
-    %decrement_option(!MenuSelectionIndex,#7)
-DecrementRNG:
-    dec !SavedRNGBytes,x    ;decrement selected byte
-    bra RedrawRNG
-IncrementRNG:
-    inc !SavedRNGBytes,x    ;increment selected byte
-RedrawRNG:
-    %edit_value_sfx()
-    inc !DrawOptionFlag     ;redraw option
-    rts
-RNGHighNybble:
-    lda !JoypadBitsAPressed ;check directions just pressed
-    bit #%00000100
-    bne DecRNGHigh          ;if pressing down, decrement RNG high nybble
-    bit #%00001000
-    bne IncRNGHigh          ;if pressing up, increment RNG high nybble
-    rts
-DecRNGHigh:
-    lda !SavedRNGBytes,x    ;subtract $10 from byte
-    sec
-    sbc #$10
-    bra StoreRNGByte
-IncRNGHigh:
-    lda !SavedRNGBytes,x    ;add $10 to byte
-    clc
-    adc #$10
-StoreRNGByte:
-    sta !SavedRNGBytes,x
-    bra RedrawRNG
-
-;----------------------------------------------------------------
-
 ;"RAM ADDRESSES = 0000 0000 "
 AddressOptionText:
     dw $2c1b, $2c0a, $2c16, $2c28, $2c0a, $2c0d, $2c0d, $2c1b
@@ -1422,8 +1418,13 @@ ControlTitleOption:
     stz !CurrentRNGNumber       ;reset RNG number too, just in case
     stz !CurrentRNGNumber+1
     stz !CurrentBrother         ;smb1 requires this so we don't have red luigi
+    ;stz !HardWorldsFlag         ;clear flag to play normal smb1 demo inputs
+    ;stz !MoreDifficultQuestFlag ;disable hard mode to prevent smb1 demo desync
+    stz !MosaicFadeoutFlag      ;do not perform mosaic fadeout
     lda #$01
     sta !FixFadeoutBGScroll     ;set flag to perform fade-out
+    ;lda #$ff
+    ;sta !DemoEnable_TLL         ;re-enable the demo for tll
     inc !DisableScreenFlag      ;set screen disable flag
     %menu_confirm_sfx()         ;play confirmation sound
     %fadeout_music()            ;set music fade-out
@@ -1739,3 +1740,7 @@ org $0cfde0
     db $F8,$88,$F0,$90,$E0,$A0,$40,$40
     db $0C,$0C,$1E,$12,$3E,$22,$7E,$42  ;cursor icon for menu
     db $7E,$42,$3E,$22,$1E,$12,$0C,$0C
+    db $20,$20,$70,$50,$70,$50,$20,$20  ;prime
+    db $00,$00,$00,$00,$00,$00,$00,$00
+    db $28,$28,$7C,$54,$7C,$54,$28,$28  ;double prime
+    db $00,$00,$00,$00,$00,$00,$00,$00
