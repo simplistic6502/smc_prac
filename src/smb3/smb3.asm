@@ -48,6 +48,261 @@ org $29b0ab
 	nop
 	nop
 
+; replace score on HUD with timer
+org $29e79a
+	lda !Level_ObjPtr_AddrL
+	ora !Level_ObjPtr_AddrH
+	bne +
+	lda #$a5 ; clock
+	sta !StatusBar_Score
+	rtl
+
++:	lda !Level_GetWandState
+	beq +
+	lda #$a5 ; clock
+	sta !StatusBar_Score
+	jmp sub_b1d8
++:	lda !Level_TimerFrames
+	clc
+	adc !Level_TimerAdder
+	sta !Level_TimerFrames
+	cmp #60
+	bcc sub_b1ca
+	sbc #60
+	sta !Level_TimerFrames
+	
+	lda !Level_TimerSeconds
+	adc #0
+	sta !Level_TimerSeconds
+	cmp #60
+	bcc sub_b1ca
+	sbc #60
+	sta !Level_TimerSeconds
+
+	lda !Level_TimerMinutes
+	adc #0
+	cmp #10
+	bcc sub_b1c7
+	lda #59
+	sta !Level_TimerFrames
+	lda #59
+	sta !Level_TimerSeconds
+	lda #$09
+sub_b1c7:
+	sta !Level_TimerMinutes
+sub_b1ca:
+	ldx #$a5 ; clock
+	lda !Level_TimerFrames
+	cmp #30
+	bcc +
+	ldx #$ad ; blank
++:	stx !StatusBar_Score
+sub_b1d8:
+	lda #$00
+	sta !Level_TimerAdder
+	lda !Level_TimerMinutes
+	ora #$90
+	sta !StatusBar_Score+1
+	lda !Level_TimerSeconds
+	ldy #$02
+	jsr Timer_TwoDigitDisplay
+	ldy #$04
+	lda !Level_TimerFrames
+	jsr Timer_TwoDigitDisplay
+	rtl
+	;jsr $f180
+	;jmp sub_b583
+Timer_TwoDigitDisplay:
+	ldx #$90
+-:	cmp #10
+	bcc +
+	sbc #10
+	inx
+	bcs -
++:	ora #$90
+	sta !StatusBar_Score+1,y
+	txa
+	sta !StatusBar_Score,y
+	rts
+
+org $29f180
+	;ldy $0300
+	;lda $0500
+	;pha
+	;lsr
+	;lsr
+	;lsr
+	;lsr
+	;cmp #$0a
+	;bcc $02
+	;sbc #$6a
+	;clc
+	;adc #$f0
+	;sta $0304,y
+	;pla
+	;and #$0f
+	;cmp #$0a
+	;bcc $02
+	;sbc #$6a
+	;clc
+	;adc #$f0
+	;sta $0305,y
+	;lda #$00
+	;sta $0306,y
+	;ldx #$27
+	;lda $03ef
+	;bne $0f
+	;ldx #$2b
+	;lda $070a
+	;cmp #$10
+	;beq $04
+	;cmp #$11
+	;bne $02
+	;ldx #$23
+	;txa
+	;sta $0301,y
+	;lda #$42
+	;sta $0302,y
+	;lda #$02
+	;sta $0303,y
+	;lda $0300
+	;clc
+	;adc #$05
+	;sta $0300
+	;rts
+
+sub_b579:
+	;cmp #$0a
+	;bne $02
+	;asl
+	;asl
+	;tay
+	;rts
+	
+sub_b583:
+	;ldy $0300
+	;lda $f7
+	;lsr
+	;pha
+	;lda #$8d
+	;bcc $02
+	;lda #$8e
+	;sta $0306,y
+	;pla
+	;lsr
+	;pha
+	;lda #$8a
+	;bcc $02
+	;lda #$8b
+	;sta $0304,y
+	;pla
+	;pha
+	;and #$03
+	;tax
+	;lda data_b5e9,x
+	;sta $0305,y
+	;pla
+	;lsr
+	;lsr
+	;lsr
+	;lsr
+	;tax
+	;lda data_b5e9+4,x
+	;sta $0307,y
+	;lda #$00
+	;sta $0308,y
+	;ldx #$27
+	;lda $03ef
+	;bne $0f
+	;ldx #$2b
+	;lda $070a
+	;cmp #$10
+	;beq $04
+	;cmp #$11
+	;bne $02
+	;ldx #$23
+	;txa
+	;sta $0301,y
+	;lda #$22
+	;sta $0302,y
+	;lda #$04
+	;sta $0303,y
+	;lda $0300
+	;clc
+	;adc #$07
+	;sta $0300
+	;rts
+	
+data_b5e9:
+	;db $85, $86, $87, $89, $80, $82, $83, $84
+	
+sub_b5f1:
+	;tax
+	;lda $f7
+	;and #$20
+	;beq $2f
+	;lda $0726
+	;beq $02
+	;lda #$23
+	;adc $03e7
+	;adc $03e9
+	;tax
+	;lda !Inventory_Items,x
+	;adc !Debug_Inventory
+	;cmp data_b62c,y
+	;bne $03
+	;lda data_b62c+2,y
+	;sta !Inventory_Items,x
+	;nop
+	;nop
+	;nop	;originally JSR $A522
+	;lda #$03
+	;sta $03ec
+	;lda #$0c
+	;sta $03e5
+	;pla
+	;pla
+	;rts
+	
+sub_b627:
+	;txa
+	;nop
+	;nop
+	;nop	;originally ADC $A3FC,Y
+	;rts
+data_b62c:
+	;db $0e, $00, $01, $0d
+
+; level timer
+org $20f0b7
+	jsr Update_LevelTimer
+org $20ff78
+Update_LevelTimer:
+	;LDA $11
+	;SEC
+	;SBC $1F
+	;TAY
+	;LDA $65
+	;ORA $66
+	;BEQ $9FDD
+	;LDX $0376
+	;BNE $9FD2
+	;TYA
+	;CLC
+	;ADC $0501
+	;STA $0501
+	;TYA
+	;SEC
+	;SBC #$01
+	;CLC
+	;ADC $0500
+	;STA $0500
+	;LDA $11
+	;STA $1F
+	inc !Level_TimerAdder
+	dec !NMIAckFlag
+	rts
+	
 ;World 1 Map Changes
 org $2ae29c
 	db $46
@@ -275,3 +530,9 @@ org $29e69a
 	adc #$01
 +:  ldy #$00
 	bra $0a
+
+; remove trailing zero
+org $21f0f3 ; normal status bar
+	dw $22ad
+org $229227 ; closing inventory
+	dw $02ad

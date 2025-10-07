@@ -128,6 +128,8 @@
 !ScreenBrightness_SMB3_w = $0016
 !Pad_Holding = $17
 !Pad_Input = $18
+!Level_ObjPtr_AddrL = $2d
+!Level_ObjPtr_AddrH = $31
 !Player_XVel = $8b
 !Controller1AHolding = $f2
 !Controller1AHolding_w = $00f2
@@ -139,16 +141,28 @@
 !Controller1BPress_w = $00f8
 !Level_JctCtl = $0414
 !InvFlip_Counter = $041c
+!Level_TimerAdder = $0501
+!Level_TimerFrames = $0502
+!Level_TimerSeconds = $0503
+!Level_TimerMinutes = $0504
 !Player_SlideRate = $0569
 !Level_ObjectID = $0671
 !Player_Lives = $0736
 !World_Map_Power = $0747
 !Player_XSub_SMB3 = $074e
 !RandomN = $0783
+!Level_GetWandState = $07be
+!Graphics_BufCnt = $1600
+!Graphics_Buffer = $1602
 !Objects_Hitcount_SMB3 = $1cf6
 !Map_PrevMoveDir = $1dd5
 !Inventory_Cards = $1d9c
 !Map_MusicBox_Cnt = $1f55
+!StatusBar_LivesH = $1f4a
+!StatusBar_LivesL = $1f4b
+!StatusBar_Score = $1f4c
+!Inventory_Items = $1d80
+!Debug_Inventory = $21ef60
 
 ;smc defines
 !Joypad1AHeld = $f0
