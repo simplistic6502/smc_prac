@@ -134,6 +134,10 @@
 !Controller1APress_w = $00f6
 !Controller1BPress = $f8
 !Controller1BPress_w = $00f8
+!Level_ObjectID = $0671
+!Player_XSub_SMB3 = $074e
+!Map_PrevMoveDir = $1DD5
+!Objects_Hitcount_SMB3 = $1cfa
 
 ;smc defines
 !Joypad1AHeld = $f0

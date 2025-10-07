@@ -7,6 +7,7 @@ incsrc "defines.asm"
 incsrc "smb1_tll/common.asm"
 incsrc "smb1_tll/smb1.asm"
 incsrc "smb1_tll/smbtll.asm"
+incsrc "smb3/smb3.asm"
 
 if !savestates
 	incsrc "savestates.asm"
