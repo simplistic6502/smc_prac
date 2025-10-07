@@ -3,14 +3,14 @@ org $29e6d0
 	ldy #$00
 	lda !Level_ObjectID+4
 	cmp #$18 ;Bowser Object ID
-	beq $0a
+	beq $09
 	lda !Player_XSub_SMB3
 	lsr
 	lsr
 	lsr
 	lsr
 	bra $1a
-	lda !Objects_Hitcount_SMB3
+	lda !Objects_Hitcount_SMB3+4
 	bra $15
 	nop
 	nop
@@ -42,7 +42,7 @@ org $238d1c
 org $218d08
 	db $20 
 
-; do not automatically enter map objects
+; do not defeat enemy map objects
 org $29b0ab
 	bra $5a
 	nop
@@ -163,6 +163,8 @@ org $2aeb12
 	db $45, $47, $45, $bc, $45, $4a
 org $2aeb12
 	db $45, $47, $45, $bc, $45, $4a
+org $2aeb96
+    db $e2
 org $2aeba4
 	db $45, $47, $45, $bc, $45, $4a, $45, $47
 org $2aebb1
@@ -191,3 +193,85 @@ org $2aed88
 	db $46, $42, $46
 org $2aed98
 	db $48
+
+;don't save 1-3 warp whistle collection
+org $289428
+	nop
+	nop
+	nop
+	nop
+
+;always give first card at end of level
+org $28ce15
+	sta !Inventory_Cards
+	nop
+
+;do not save hit big question blocks (flawed, can recollect while still in level)
+org $299955
+	nop
+	nop
+	nop
+
+;player cannot be pulled into hand trap if music box is active or wearing frog suit
+org $238c09
+	jsr Map_CheckPullHand
+org $23a4fc
+Map_CheckPullHand:
+	lda !Map_MusicBox_Cnt
+	bne +
+	lda !World_Map_Power,x
+	cmp #$04
+	beq +
+	lda !RandomN,x
+	rts
++:  lda #$01
+	rts
+
+;do not track immediate level completion
+org $29afe6
+	nop
+	nop
+
+;do not spawn white bonus objects
+org $29b192
+	nop
+	nop
+	nop
+
+;disable marching for hammer bros, w7 piranha plants, and coin ships
+org $21e697
+    db $00,$00,$00,$00,$00,$00
+org $21e69f
+    db $00
+
+;require player to press A/B to enter map object stages
+org $29b8df
+	lda !InvFlip_Counter
+	bne +
+	lda !Pad_Input
+	bmi $0b
++:  rts
+
+;do not spawn airship on overworld
+org $22f1b5
+	lda #$03
+	sta !Level_JctCtl
+	rts
+
+;treat death like normal level exit
+org $209116
+	bra $03
+	nop
+	nop
+	nop
+
+;display player X speed instead of lives
+org $29e69a
+	lda !Player_XVel
+	clc
+	adc !Player_SlideRate
+	bpl +
+	eor #$ff
+	adc #$01
++:  ldy #$00
+	bra $0a

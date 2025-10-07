@@ -138,7 +138,7 @@ SockfolderText_SMB1:
     dw $6458,$0740,$2000 ;"0000" after S
     dw $7058,$0500,$2c15,$2000,$2000 ;"L00" for lag counter
 
-warnpc $038cfe
+assert pc() <= $038cfe
 
 ;save RNG and entrance frame when loading area pointer (need to do warpzones)
 org $0387eb ;title screen (reorder code to store hidden 1-UP flag first)

@@ -141,7 +141,7 @@ SockfolderText_TLL:
     dw $6458,$0740,$2000 ;"0000" after S
     dw $7058,$0500,$2c15,$2000,$2000 ;"L00" for lag counter
 
-warnpc $0d8ac0
+assert pc() <= $0d8ac0
 
 ;save RNG and entrance frame when loading area pointer
 org $0d861d ;title screen (reorder code to store hidden 1-UP flag first)

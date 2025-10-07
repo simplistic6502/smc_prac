@@ -126,6 +126,9 @@
 ;smb3 addresses
 !ScreenBrightness_SMB3 = $16
 !ScreenBrightness_SMB3_w = $0016
+!Pad_Holding = $17
+!Pad_Input = $18
+!Player_XVel = $8b
 !Controller1AHolding = $f2
 !Controller1AHolding_w = $00f2
 !Controller1BHolding = $f4
@@ -134,10 +137,18 @@
 !Controller1APress_w = $00f6
 !Controller1BPress = $f8
 !Controller1BPress_w = $00f8
+!Level_JctCtl = $0414
+!InvFlip_Counter = $041c
+!Player_SlideRate = $0569
 !Level_ObjectID = $0671
+!Player_Lives = $0736
+!World_Map_Power = $0747
 !Player_XSub_SMB3 = $074e
-!Map_PrevMoveDir = $1DD5
-!Objects_Hitcount_SMB3 = $1cfa
+!RandomN = $0783
+!Objects_Hitcount_SMB3 = $1cf6
+!Map_PrevMoveDir = $1dd5
+!Inventory_Cards = $1d9c
+!Map_MusicBox_Cnt = $1f55
 
 ;smc defines
 !Joypad1AHeld = $f0
