@@ -536,3 +536,55 @@ org $21f0f3 ; normal status bar
 	dw $22ad
 org $229227 ; closing inventory
 	dw $02ad
+	
+org $20B587
+	db $07
+	
+org $20B918 ; Fix debug menu for SNES
+	adc $20a460,x
+	and #$07
+	sta $03fe
+	jmp $b9cd
+	lda $18
+	and #$20
+	beq $0b
+	inc $072b
+	lda $072b
+	and #$01
+	sta $072b
+	ldx $072b
+	lda #$48
+	sta $09f0
+	lda $20b749,x
+	sta $09f1
+	lda #$4f
+	sta $09f2
+	lda #$20
+	sta $09f3
+	lda #$00
+	sta $0a9c
+	lda $18
+	and #$80
+	bra $2c
+	
+org $20b9e0	; Fix priority of debug menu cursor
+	db $20
+
+org $2081ae ; Patch items loading from SRAM (Part 1)
+	nop
+	nop
+	nop
+
+org $2081bb ; Patch items loading from SRAM (Part 2: Electric Boogaloo)
+	nop
+	nop
+	nop
+	
+org $20b8e7 ; Patch items loading from SRAM (Part 3: WHY IS THERE A LDA #$00 THERE!?)
+	nop
+	nop
+	nop
+	
+org $29dcf3 ; Do not lose inventory items after use
+	bra $3f
+	bra $3d
