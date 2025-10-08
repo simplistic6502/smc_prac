@@ -1,3 +1,16 @@
+; Do not save World Number (breaks overworld enemies)
+org $009244
+	nop
+	nop
+	nop
+	nop
+	
+org $009257
+	nop
+	nop
+	nop
+	nop
+	
 ;Display X-Subs or Bowser HP instead of Coin Count
 org $29e6d0
 	ldy #$00
