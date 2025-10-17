@@ -7,7 +7,12 @@ incsrc "defines.asm"
 incsrc "smb1_tll/common.asm"
 incsrc "smb1_tll/smb1.asm"
 incsrc "smb1_tll/smbtll.asm"
-incsrc "smb3/smb3.asm"
+
+;smb3
+incsrc "smb3/edits.asm"
+incsrc "smb3/speedview.asm"
+incsrc "smb3/subpixel.asm"
+incsrc "smb3/mapedits.asm"
 
 if !savestates
 	incsrc "savestates.asm"
